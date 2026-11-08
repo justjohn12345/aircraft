@@ -1,5 +1,5 @@
 // @ts-strict-ignore
-// Copyright (c) 2021-2025 FlyByWire Simulations
+// Copyright (c) 2021-2026 FlyByWire Simulations
 //
 // SPDX-License-Identifier: GPL-3.0
 
@@ -15,6 +15,7 @@ import { VerticalMode } from '@shared/autopilot';
 import { FmgcFlightPhase } from '@shared/flightphase';
 import { SpeedMargin } from './SpeedMargin';
 import { TodGuidance } from './TodGuidance';
+import { FinalAppEngageBlocker, getFinalAppEngageBlocker } from './FinalApproachLogic';
 import { AircraftConfig } from '../../../flightplanning/AircraftConfigTypes';
 
 enum DescentVerticalGuidanceState {
@@ -104,6 +105,9 @@ export class DescentGuidance {
 
   private pathCaptureState: PathCaptureState = PathCaptureState.OffPath;
 
+  /** Whether the FMS allows the FINAL vertical mode to engage (FINAL APP). Latched while FINAL is engaged. */
+  private finalAppCanEngage: boolean = false;
+
   constructor(
     config: AircraftConfig,
     bus: EventBus,
@@ -162,20 +166,22 @@ export class DescentGuidance {
     this.showDescentLatchOnPfd = false;
     this.isInOverspeedCondition = false;
     this.pathCaptureState = PathCaptureState.OffPath;
+    this.finalAppCanEngage = false;
   }
 
   update(deltaTime: number, distanceToEnd: NauticalMiles) {
     this.aircraftToDescentProfileRelation.update(distanceToEnd);
 
     if (!this.aircraftToDescentProfileRelation.isValid) {
+      this.updateFinalAppCanEngage();
       this.changeState(DescentVerticalGuidanceState.InvalidProfile);
       return;
     }
 
-    if (
-      (this.observer.get().fcuVerticalMode === VerticalMode.DES) !==
-      (this.verticalState === DescentVerticalGuidanceState.ProvidingGuidance)
-    ) {
+    const { fcuVerticalMode } = this.observer.get();
+    const isInManagedDescentMode = fcuVerticalMode === VerticalMode.DES || fcuVerticalMode === VerticalMode.FINAL;
+
+    if (isInManagedDescentMode !== (this.verticalState === DescentVerticalGuidanceState.ProvidingGuidance)) {
       this.changeState(
         this.verticalState === DescentVerticalGuidanceState.ProvidingGuidance
           ? DescentVerticalGuidanceState.Observing
@@ -188,9 +194,14 @@ export class DescentGuidance {
     this.updateSpeedGuidance();
     this.updateOverUnderspeedCondition();
     this.updateLinearDeviation();
+    this.updateFinalAppCanEngage();
 
     if (this.verticalState === DescentVerticalGuidanceState.ProvidingGuidance) {
-      this.updateDesModeGuidance();
+      if (fcuVerticalMode === VerticalMode.FINAL) {
+        this.updateFinalModeGuidance();
+      } else {
+        this.updateDesModeGuidance();
+      }
     }
 
     this.writeToSimVars();
@@ -210,6 +221,52 @@ export class DescentGuidance {
       fcuVerticalMode !== VerticalMode.LAND &&
       fcuVerticalMode !== VerticalMode.FLARE &&
       fcuVerticalMode !== VerticalMode.ROLL_OUT;
+  }
+
+  private updateFinalAppCanEngage() {
+    const { fcuVerticalMode, flightPhase } = this.observer.get();
+    const profile = this.aircraftToDescentProfileRelation.currentProfile;
+    const fdpDistanceToEnd = profile?.finalDescentPointDistanceToEnd ?? null;
+
+    let blocker: FinalAppEngageBlocker;
+    let distanceToFdp = 0;
+    let linearDeviation = 0;
+
+    if (!this.aircraftToDescentProfileRelation.isValid) {
+      blocker = FinalAppEngageBlocker.InvalidProfile;
+    } else if (fdpDistanceToEnd === null) {
+      blocker = FinalAppEngageBlocker.NoFinalDescentPoint;
+    } else {
+      distanceToFdp = this.aircraftToDescentProfileRelation.currentDistanceToEnd - fdpDistanceToEnd;
+      linearDeviation = this.aircraftToDescentProfileRelation.computeLinearDeviation();
+
+      blocker =
+        // Once FINAL is engaged, keep the condition latched so the FMGC does not drop the mode.
+        // FINAL is lost when the profile becomes invalid (handled above).
+        fcuVerticalMode === VerticalMode.FINAL
+          ? FinalAppEngageBlocker.None
+          : getFinalAppEngageBlocker({
+              isApproachPhaseActive: flightPhase === FmgcFlightPhase.Approach,
+              crossTrackError: SimVar.GetSimVarValue('L:A32NX_FG_CROSS_TRACK_ERROR', 'nautical miles'),
+              distanceToFinalDescentPoint: distanceToFdp,
+              linearDeviation,
+              pathAngleAtAircraft: this.aircraftToDescentProfileRelation.currentTargetPathAngle(),
+              finalPathAngle: profile.finalDescentAngle,
+            });
+    }
+
+    this.finalAppCanEngage = blocker === FinalAppEngageBlocker.None;
+  }
+
+  /**
+   * In FINAL, the aircraft tracks the vertical path with speed on the autothrust. There are no off-path reversions as in DES.
+   */
+  private updateFinalModeGuidance() {
+    const linearDeviation = this.aircraftToDescentProfileRelation.computeLinearDeviation();
+
+    this.targetAltitudeGuidance = this.atmosphericConditions.currentPressureAltitude - linearDeviation;
+    this.requestedVerticalMode = RequestedVerticalMode.VpathSpeed;
+    this.targetVerticalSpeed = this.aircraftToDescentProfileRelation.currentTargetVerticalSpeed();
   }
 
   private updateDesModeGuidance() {
@@ -355,6 +412,7 @@ export class DescentGuidance {
     SimVar.SetSimVarValue('L:A32NX_FG_REQUESTED_VERTICAL_MODE', 'Enum', this.requestedVerticalMode);
     SimVar.SetSimVarValue('L:A32NX_FG_TARGET_ALTITUDE', 'Feet', this.targetAltitudeGuidance);
     SimVar.SetSimVarValue('L:A32NX_FG_TARGET_VERTICAL_SPEED', 'number', this.targetVerticalSpeed);
+    SimVar.SetSimVarValue('L:A32NX_FG_FINAL_CAN_ENGAGE', 'Bool', this.finalAppCanEngage);
 
     SimVar.SetSimVarValue('L:A32NX_PFD_TARGET_ALTITUDE', 'Feet', this.targetAltitude);
     SimVar.SetSimVarValue('L:A32NX_PFD_LINEAR_DEVIATION_ACTIVE', 'Bool', this.showLinearDeviationOnPfd);

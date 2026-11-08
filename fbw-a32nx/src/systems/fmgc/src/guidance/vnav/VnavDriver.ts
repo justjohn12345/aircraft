@@ -72,6 +72,8 @@ export class VnavDriver implements GuidanceComponent {
 
   private prevMcduPredReadyToDisplay = false;
 
+  private prevFinalAppApproachSelected: boolean | null = null;
+
   constructor(
     private readonly bus: EventBus,
     private readonly flightPlanService: FlightPlanService,
@@ -141,6 +143,7 @@ export class VnavDriver implements GuidanceComponent {
 
   recompute(geometry: Geometry): void {
     this.constraintReader.updateFlightPlan();
+    this.publishFinalAppApproachSelected(this.constraintReader.isFinalAppApproachSelected);
 
     if (geometry.legs.size <= 0 || !this.computationParametersObserver.canComputeProfile()) {
       this.reset();
@@ -207,6 +210,16 @@ export class VnavDriver implements GuidanceComponent {
 
       SimVar.SetSimVarValue('L:A32NX_FM_VERTICAL_PROFILE_AVAIL', 'Bool', false);
       this.prevMcduPredReadyToDisplay = false;
+    }
+  }
+
+  /**
+   * Tells the FMGC whether a non-LS approach is selected, so that the APPR pb arms APP NAV / FINAL instead of LOC / G/S.
+   */
+  private publishFinalAppApproachSelected(isSelected: boolean): void {
+    if (isSelected !== this.prevFinalAppApproachSelected) {
+      SimVar.SetSimVarValue('L:A32NX_FG_RNAV_APP_SELECTED', 'Bool', isSelected);
+      this.prevFinalAppApproachSelected = isSelected;
     }
   }
 

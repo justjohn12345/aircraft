@@ -1953,8 +1953,6 @@ bool FlyByWireInterface::updateFmgcShim(double sampleTime) {
   bool finalDesMode = Arinc429Utils::bitFromValueOr(fmgcsBusOutputs[fmgcPriorityIndex].fmgc_a_bus.discrete_word_1, 23, false);
   bool tcasMode = Arinc429Utils::bitFromValueOr(fmgcsBusOutputs[fmgcPriorityIndex].fmgc_a_bus.discrete_word_7, 13, false);
 
-  bool navMode = Arinc429Utils::bitFromValueOr(fmgcsBusOutputs[fmgcPriorityIndex].fmgc_a_bus.discrete_word_2, 12, false);
-
   int verticalMode = 0;
   if (trackMode && altMode && !dashMode && !altConstraintValid) {
     verticalMode = 10;
@@ -1976,7 +1974,8 @@ bool FlyByWireInterface::updateFmgcShim(double sampleTime) {
     verticalMode = 22;
   } else if (descentMode && !openMode) {
     verticalMode = 23;
-  } else if (finalDesMode && !navMode) {
+  } else if (finalDesMode) {
+    // FINAL is also the active vertical mode when shown combined with APP NAV as FINAL APP
     verticalMode = 24;
   } else if (gsMode && gsCaptureMode) {
     verticalMode = 30;
