@@ -1,5 +1,5 @@
 // @ts-strict-ignore
-// Copyright (c) 2021-2023 FlyByWire Simulations
+// Copyright (c) 2021-2026 FlyByWire Simulations
 //
 // SPDX-License-Identifier: GPL-3.0
 
@@ -13,6 +13,11 @@ import { GuidanceController } from '@fmgc/guidance/GuidanceController';
 import { MathUtils, ApproachType, ApproachWaypointDescriptor, WaypointConstraintType } from '@flybywiresim/fbw-sdk';
 import { VnavConfig } from '@fmgc/guidance/vnav/VnavConfig';
 import { FlightPlanService } from '@fmgc/flightplanning/FlightPlanService';
+import {
+  FinalApproachLegInfo,
+  findFinalDescentPointDistanceToEnd,
+  isFinalAppApproachType,
+} from '@fmgc/guidance/vnav/descent/FinalApproachLogic';
 
 /**
  * This entire class essentially represents an interface to the flightplan.
@@ -51,6 +56,15 @@ export class ConstraintReader {
 
   public finalAltitude: Feet = 50;
 
+  /**
+   * Distance from the Final Descent Point (start of the coded final vertical path) to the end of the profile,
+   * or null if the final approach has no coded vertical angle.
+   */
+  public finalDescentPointDistanceToEnd: NauticalMiles | null = null;
+
+  /** Whether the selected approach is flown with APP NAV / FINAL instead of LOC / G/S. */
+  public isFinalAppApproachSelected = false;
+
   constructor(
     private flightPlanService: FlightPlanService,
     private guidanceController: GuidanceController,
@@ -65,6 +79,7 @@ export class ConstraintReader {
     let maxSpeed = Infinity;
 
     const plan = this.flightPlanService.active;
+    const finalApproachLegs: FinalApproachLegInfo[] = [];
 
     for (let i = 0; i < plan.firstMissedApproachLegIndex; i++) {
       const leg = plan.elementAt(i);
@@ -153,7 +168,14 @@ export class ConstraintReader {
       if (leg.definition.approachWaypointDescriptor === ApproachWaypointDescriptor.FinalApproachFix) {
         this.fafDistanceToEnd = legDistanceToEnd;
       }
+
+      if (plan.destinationLegIndex !== null && i <= plan.destinationLegIndex) {
+        finalApproachLegs.push({ verticalAngle: leg.definition.verticalAngle, distanceToEnd: legDistanceToEnd });
+      }
     }
+
+    this.finalDescentPointDistanceToEnd = findFinalDescentPointDistanceToEnd(finalApproachLegs);
+    this.isFinalAppApproachSelected = isFinalAppApproachType(plan.approach?.type);
 
     this.updateFinalAltitude();
   }
@@ -211,6 +233,8 @@ export class ConstraintReader {
     this.fafDistanceToEnd =
       1000 / Math.tan(-this.finalDescentAngle * MathUtils.DEGREES_TO_RADIANS) / MathUtils.FEET_TO_NAUTICAL_MILES;
     this.finalAltitude = 50;
+    this.finalDescentPointDistanceToEnd = null;
+    this.isFinalAppApproachSelected = false;
   }
 
   private updateDistancesToEnd() {
