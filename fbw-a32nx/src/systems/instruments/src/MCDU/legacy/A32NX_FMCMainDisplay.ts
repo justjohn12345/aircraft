@@ -1514,13 +1514,24 @@ export abstract class FMCMainDisplay implements FmsDataInterface, FmsDisplayInte
           constraintAlt = constraints.climbAltitude;
         }
 
+        // In descent, a constraint that the aircraft certainly crosses above is not sent to the FG, as no level-off
+        // happens there. Sending it lets ALT CST* engage, which then reverts to V/S when the constrained waypoint is
+        // sequenced and the target jumps to the next constraint.
+        // This is evaluated even without a constraint above the FCU altitude ahead, so that a capture in progress of a
+        // constraint that was just sequenced can complete.
         if (
           this.flightPhaseManager.phase > FmgcFlightPhase.Cruise &&
-          this.flightPhaseManager.phase < FmgcFlightPhase.GoAround &&
-          isFinite(constraints.descentAltitude) &&
-          constraints.descentAltitude > fcuSelAlt
+          this.flightPhaseManager.phase < FmgcFlightPhase.GoAround
         ) {
-          constraintAlt = constraints.descentAltitude;
+          const levelOffConstraint = this.guidanceController.vnavDriver.getDescentConstraintAltitudeTarget(
+            fcuSelAlt,
+            this.constraintAlt,
+            constraints.descentAltitude,
+          );
+
+          if (levelOffConstraint !== null && levelOffConstraint > fcuSelAlt) {
+            constraintAlt = levelOffConstraint;
+          }
         }
       }
 
