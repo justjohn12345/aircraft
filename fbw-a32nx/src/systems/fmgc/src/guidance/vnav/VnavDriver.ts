@@ -29,13 +29,25 @@ import {
   VerticalCheckpointReason,
   VerticalWaypointPrediction,
 } from './profile/NavGeometryProfile';
-import { LegType, MathUtils } from '@flybywiresim/fbw-sdk';
+import { ConstraintUtils, LegType, MathUtils, WaypointConstraintType } from '@flybywiresim/fbw-sdk';
 import { EventBus } from '@microsoft/msfs-sdk';
 import { FlightPlanIndex } from '../../flightplanning/FlightPlanManager';
 import { VnavConfig } from './VnavConfig';
 import { isLeg } from '../../flightplanning/legs/FlightPlanLeg';
 
 export class VnavDriver implements GuidanceComponent {
+  /** Tolerance between the aircraft (or FCU) altitude and a descent constraint altitude. */
+  private static readonly DESCENT_CONSTRAINT_ALTITUDE_TOLERANCE: Feet = 20;
+
+  /**
+   * How far above a descent constraint the predicted path may cross it while the constraint is still sent to the FG,
+   * to allow for prediction errors.
+   */
+  private static readonly DESCENT_CONSTRAINT_LEVEL_OFF_MARGIN: Feet = 250;
+
+  /** Additional margin for the constraint that is already the FG target, so that the target does not flicker. */
+  private static readonly DESCENT_CONSTRAINT_LEVEL_OFF_HYSTERESIS: Feet = 250;
+
   version: number = 0;
 
   private listener = RegisterViewListener('JS_LISTENER_SIMVARS', null, true);
@@ -254,6 +266,113 @@ export class VnavDriver implements GuidanceComponent {
 
   get ndProfile(): BaseGeometryProfile | undefined {
     return this.profileManager.ndProfile;
+  }
+
+  /**
+   * Returns the descent altitude constraint to send to the FG as altitude target.
+   *
+   * In DES, this is the first constraint ahead where the path predicted from the present position (the ND profile)
+   * levels off, i.e. where the aircraft is predicted to reach the constraint altitude before the constrained waypoint.
+   * A constraint the aircraft is predicted to cross above is not sent, as no level-off happens there: sending it would
+   * let ALT CST* engage, which then reverts to V/S when the waypoint is sequenced and the target changes.
+   * In other modes no descent along the constraints is predicted, so the next constraint is returned.
+   * @param fcuAltitude FCU selected altitude
+   * @param currentFgTarget the constraint currently sent to the FG, or 0 if none
+   * @param nextConstraint the highest descent altitude constraint lower limit ahead of the aircraft
+   * @returns the constraint altitude, or null if the FCU altitude is the target
+   */
+  getDescentConstraintAltitudeTarget(fcuAltitude: Feet, currentFgTarget: Feet, nextConstraint: Feet): Feet | null {
+    const parameters = this.computationParametersObserver.get();
+    const verticalMode = parameters.fcuVerticalMode;
+
+    // A target change during ALT CST* reverts to V/S, so complete the capture of a constraint even if it is sequenced
+    // meanwhile. Once it is held in ALT CST, keep it as the target until it is sequenced.
+    if (currentFgTarget > fcuAltitude) {
+      if (verticalMode === VerticalMode.ALT_CST_CPT) {
+        return currentFgTarget;
+      }
+      if (verticalMode === VerticalMode.ALT_CST && nextConstraint >= currentFgTarget) {
+        return currentFgTarget;
+      }
+    }
+
+    if (!Number.isFinite(nextConstraint) || nextConstraint <= fcuAltitude) {
+      return null;
+    }
+
+    const ndProfile = this.profileManager.ndProfile;
+    if (
+      verticalMode !== VerticalMode.DES ||
+      !this.isLatAutoControlActive() ||
+      !ndProfile?.isReadyToDisplay ||
+      ndProfile.checkpoints.length === 0
+    ) {
+      return nextConstraint;
+    }
+
+    const checkpoints = ndProfile.checkpoints;
+    const altitude = parameters.presentPosition.alt;
+    const plan = this.flightPlanService.active;
+    let checkpointIndex = 0;
+
+    // Sequenced legs are skipped: their distances are not updated anymore, and a fly-by waypoint is sequenced before the
+    // aircraft passes abeam it, so they can appear to be still ahead.
+    for (let i = plan.activeLegIndex; i < plan.firstMissedApproachLegIndex; i++) {
+      const leg = plan.maybeElementAt(i);
+      if (
+        !leg ||
+        leg.isDiscontinuity === true ||
+        leg.constraintType !== WaypointConstraintType.DES ||
+        !leg.altitudeConstraint ||
+        !leg.calculated
+      ) {
+        continue;
+      }
+
+      const minimumAltitude = ConstraintUtils.minimumAltitude(leg.altitudeConstraint);
+      if (
+        minimumAltitude === undefined ||
+        minimumAltitude <= fcuAltitude + VnavDriver.DESCENT_CONSTRAINT_ALTITUDE_TOLERANCE ||
+        // Already at or below the constraint: it cannot be captured in descent
+        altitude <= minimumAltitude + VnavDriver.DESCENT_CONSTRAINT_ALTITUDE_TOLERANCE
+      ) {
+        continue;
+      }
+
+      const distanceFromStart = leg.calculated.cumulativeDistanceWithTransitions;
+      while (
+        checkpointIndex < checkpoints.length - 1 &&
+        checkpoints[checkpointIndex + 1].distanceFromStart < distanceFromStart
+      ) {
+        checkpointIndex++;
+      }
+
+      const previous = checkpoints[checkpointIndex];
+      if (distanceFromStart < previous.distanceFromStart) {
+        // Passed since the profile was computed
+        continue;
+      }
+
+      let predictedAltitude = previous.altitude;
+      if (checkpointIndex < checkpoints.length - 1) {
+        const next = checkpoints[checkpointIndex + 1];
+        const segmentLength = next.distanceFromStart - previous.distanceFromStart;
+        if (segmentLength > 0) {
+          predictedAltitude +=
+            ((next.altitude - previous.altitude) * (distanceFromStart - previous.distanceFromStart)) / segmentLength;
+        }
+      }
+
+      const margin =
+        minimumAltitude === currentFgTarget
+          ? VnavDriver.DESCENT_CONSTRAINT_LEVEL_OFF_MARGIN + VnavDriver.DESCENT_CONSTRAINT_LEVEL_OFF_HYSTERESIS
+          : VnavDriver.DESCENT_CONSTRAINT_LEVEL_OFF_MARGIN;
+      if (predictedAltitude - minimumAltitude <= margin) {
+        return minimumAltitude;
+      }
+    }
+
+    return null;
   }
 
   get expediteProfile(): BaseGeometryProfile | undefined {

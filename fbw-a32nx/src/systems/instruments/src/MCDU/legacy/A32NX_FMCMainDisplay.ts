@@ -1514,13 +1514,22 @@ export abstract class FMCMainDisplay implements FmsDataInterface, FmsDisplayInte
           constraintAlt = constraints.climbAltitude;
         }
 
+        // In descent, only a constraint where the predicted path levels off is sent to the FG. This is evaluated even
+        // without a constraint above the FCU altitude ahead, so that a capture in progress of a constraint that was
+        // just sequenced can complete.
         if (
           this.flightPhaseManager.phase > FmgcFlightPhase.Cruise &&
-          this.flightPhaseManager.phase < FmgcFlightPhase.GoAround &&
-          isFinite(constraints.descentAltitude) &&
-          constraints.descentAltitude > fcuSelAlt
+          this.flightPhaseManager.phase < FmgcFlightPhase.GoAround
         ) {
-          constraintAlt = constraints.descentAltitude;
+          const descentConstraint = this.guidanceController.vnavDriver.getDescentConstraintAltitudeTarget(
+            fcuSelAlt,
+            this.constraintAlt,
+            constraints.descentAltitude,
+          );
+
+          if (descentConstraint !== null && descentConstraint > fcuSelAlt) {
+            constraintAlt = descentConstraint;
+          }
         }
       }
 
