@@ -31,6 +31,7 @@ import {
 } from '@fmgc/guidance/vnav/descent/TacticalDescentPathBuilder';
 import { DescentStrategy, DesModeStrategy, IdleDescentStrategy } from '@fmgc/guidance/vnav/descent/DescentStrategy';
 import { ApproachPathBuilder } from '@fmgc/guidance/vnav/descent/ApproachPathBuilder';
+import { smoothApproachPath, SmoothingConstraint } from '@fmgc/guidance/vnav/descent/ApproachPathSmoother';
 import { ProfileInterceptCalculator } from '@fmgc/guidance/vnav/descent/ProfileInterceptCalculator';
 import { BaseGeometryProfile } from '@fmgc/guidance/vnav/profile/BaseGeometryProfile';
 import { AircraftToDescentProfileRelation } from '@fmgc/guidance/vnav/descent/AircraftToProfileRelation';
@@ -41,10 +42,12 @@ import {
   isSpeedChangePoint,
   NavGeometryProfile,
   ProfilePhase,
+  VerticalCheckpoint,
   VerticalCheckpointReason,
 } from './profile/NavGeometryProfile';
 import { ClimbPathBuilder } from './climb/ClimbPathBuilder';
 import { EventBus } from '@microsoft/msfs-sdk';
+import { ConstraintUtils } from '@flybywiresim/fbw-sdk';
 
 export class VerticalProfileManager {
   private takeoffPathBuilder: TakeoffPathBuilder;
@@ -222,8 +225,85 @@ export class VerticalProfileManager {
 
     descentProfile.checkpoints.push(...sequence.get(true).reverse());
 
+    if (this.constraintReader.isFinalAppApproachSelected) {
+      this.smoothFinalAppApproachPath(descentProfile);
+    }
+
     this.descentProfile = descentProfile;
     this.descentProfile.finalizeProfile();
+  }
+
+  /**
+   * Removes the level deceleration segments in the middle of the approach descent and rounds the corners of the path,
+   * so that it can be flown in FINAL APP without overshooting below altitude constraints. See {@link smoothApproachPath}.
+   */
+  private smoothFinalAppApproachPath(profile: NavGeometryProfile): void {
+    const startDistance = this.constraintReader.approachStartDistanceFromStart;
+    if (startDistance === null || profile.checkpoints.length < 3) {
+      return;
+    }
+
+    profile.sortCheckpoints();
+
+    const constraints: SmoothingConstraint[] = profile.descentAltitudeConstraints.map((constraint) => ({
+      distanceFromStart: constraint.distanceFromStart,
+      minimumAltitude: ConstraintUtils.minimumAltitude(constraint.constraint),
+      maximumAltitude: ConstraintUtils.maximumAltitude(constraint.constraint),
+    }));
+
+    const path = smoothApproachPath(profile.checkpoints, constraints, startDistance, (distance) =>
+      profile.interpolateSpeedAtDistance(distance),
+    );
+
+    // Points of the new path that are not existing checkpoints, with the predictions interpolated from the original path
+    const newCheckpoints: VerticalCheckpoint[] = [];
+    let checkpointIndex = 0;
+    for (const point of path) {
+      while (
+        checkpointIndex < profile.checkpoints.length &&
+        profile.checkpoints[checkpointIndex].distanceFromStart < point.distanceFromStart - 1e-4
+      ) {
+        checkpointIndex++;
+      }
+
+      const existing = profile.checkpoints[checkpointIndex];
+      if (existing && Math.abs(existing.distanceFromStart - point.distanceFromStart) < 1e-4) {
+        continue;
+      }
+
+      newCheckpoints.push({
+        ...profile.interpolateEverythingFromStart(point.distanceFromStart),
+        reason: VerticalCheckpointReason.AtmosphericConditions,
+        profilePhase: ProfilePhase.Descent,
+      });
+    }
+
+    profile.checkpoints.push(...newCheckpoints);
+    profile.sortCheckpoints();
+
+    // Move every checkpoint onto the new path
+    let pathIndex = 1;
+    for (const checkpoint of profile.checkpoints) {
+      while (pathIndex < path.length - 1 && path[pathIndex].distanceFromStart < checkpoint.distanceFromStart) {
+        pathIndex++;
+      }
+
+      const start = path[pathIndex - 1];
+      const end = path[pathIndex];
+      const length = end.distanceFromStart - start.distanceFromStart;
+
+      if (checkpoint.distanceFromStart <= path[0].distanceFromStart) {
+        checkpoint.altitude = path[0].altitude;
+      } else if (checkpoint.distanceFromStart >= path[path.length - 1].distanceFromStart) {
+        checkpoint.altitude = path[path.length - 1].altitude;
+      } else if (length > 1e-6) {
+        checkpoint.altitude =
+          start.altitude +
+          ((end.altitude - start.altitude) * (checkpoint.distanceFromStart - start.distanceFromStart)) / length;
+      } else {
+        checkpoint.altitude = end.altitude;
+      }
+    }
   }
 
   computeVerticalProfileForExpediteClimb(): void {
