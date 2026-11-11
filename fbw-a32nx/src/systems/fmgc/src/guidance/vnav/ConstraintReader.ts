@@ -65,6 +65,9 @@ export class ConstraintReader {
   /** Whether the selected approach is flown with APP NAV / FINAL instead of LOC / G/S. */
   public isFinalAppApproachSelected = false;
 
+  /** Distance from the start of the flight plan to the first fix of the approach (or approach via), or null. */
+  public approachStartDistanceFromStart: NauticalMiles | null = null;
+
   constructor(
     private flightPlanService: FlightPlanService,
     private guidanceController: GuidanceController,
@@ -90,6 +93,14 @@ export class ConstraintReader {
 
       const legDistanceToEnd = leg.calculated?.cumulativeDistanceToEndWithTransitions ?? this.totalFlightPlanDistance;
       const legDistanceFromStart = leg.calculated?.cumulativeDistanceWithTransitions ?? 0;
+
+      if (
+        this.approachStartDistanceFromStart === null &&
+        leg.calculated &&
+        (leg.segment === plan.approachViaSegment || leg.segment === plan.approachSegment)
+      ) {
+        this.approachStartDistanceFromStart = legDistanceFromStart;
+      }
 
       if (leg.cruiseStep && !leg.cruiseStep.isIgnored) {
         if (i >= plan.activeLegIndex) {
@@ -235,6 +246,7 @@ export class ConstraintReader {
     this.finalAltitude = 50;
     this.finalDescentPointDistanceToEnd = null;
     this.isFinalAppApproachSelected = false;
+    this.approachStartDistanceFromStart = null;
   }
 
   private updateDistancesToEnd() {
