@@ -2643,6 +2643,16 @@ void FmgcComputer::step()
       FmgcComputer_P.BitfromLabel7_bit_o, &rtb_DataTypeConversion1_d);
     rtb_y_bn = (rtb_y_n || (FmgcComputer_DWork.Delay_DSTATE.active_tcas_submode ==
       FmgcComputer_P.EnumeratedConstant3_Value_ls));
+    // PERSONAL hand edit of generated code (flybywiresim/aircraft#11011, not for upstream): don't revert ALT CST* to V/S
+    // when the target changed because a constrained waypoint was sequenced with CLB or DES armed. CLB/DES engages
+    // instead (FCOM DSC-22_30-70-50). Also suppress it on the frame after CLB/DES engaged while ALT* is still latched.
+    // An FCU altitude change during ALT* still reverts to V/S.
+    const bool managedModeEngagingOnCstrSequence =
+        ((FmgcComputer_DWork.Delay_DSTATE.armed_modes.des_armed ||
+          FmgcComputer_DWork.Delay_DSTATE.armed_modes.clb_armed) &&
+         (FmgcComputer_U.in.fms_inputs.next_alt_cstr_ft != FmgcComputer_DWork.DelayInput1_DSTATE_n)) ||
+        FmgcComputer_DWork.Delay_DSTATE.longitudinal_modes.des_active ||
+        FmgcComputer_DWork.Delay_DSTATE.longitudinal_modes.clb_active;
     rtb_Compare_ji = (rtb_AND12 || rtb_Compare_ji || (FmgcComputer_DWork.Delay_DSTATE.longitudinal_modes.des_active &&
       ((FmgcComputer_P.EnumeratedConstant_Value_p == FmgcComputer_U.in.fms_inputs.fms_flight_phase) ||
        (FmgcComputer_U.in.fms_inputs.fms_flight_phase == FmgcComputer_P.EnumeratedConstant1_Value_m) ||
@@ -2652,7 +2662,8 @@ void FmgcComputer::step()
         (!FmgcComputer_DWork.Delay_DSTATE.lateral_modes.loc_trk_active)) ||
        (!FmgcComputer_U.in.fms_inputs.vertical_flight_plan_valid))) ||
                       (FmgcComputer_DWork.Delay_DSTATE.longitudinal_modes.alt_acq_active && (std::abs
-      (FmgcComputer_B.u_ly - rtb_DataTypeConversion_cm) >= FmgcComputer_P.CompareToConstant_const_om)) ||
+      (FmgcComputer_B.u_ly - rtb_DataTypeConversion_cm) >= FmgcComputer_P.CompareToConstant_const_om) &&
+       !managedModeEngagingOnCstrSequence) ||
                       ((FmgcComputer_DWork.Delay_DSTATE.longitudinal_modes.des_active ||
                         FmgcComputer_DWork.Delay_DSTATE.longitudinal_modes.exp_des_active ||
                         FmgcComputer_DWork.Delay_DSTATE.longitudinal_modes.op_des_active) && (rtb_DataTypeConversion2_m >
