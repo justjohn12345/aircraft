@@ -4246,10 +4246,14 @@ void FmgcComputer::step()
       FmgcComputer_P.BitfromLabel_bit_b2, &rtb_y_ae);
     rtb_Compare_ji = (rtb_y_ae != 0U);
     rtb_Compare_ji = (rtb_Compare_ji && rtb_BusAssignment_jmp.ap_fd_logic.fmgc_opp_mode_sync);
+    // PERSONAL hand edit of generated code (not for upstream): the A/THR THR mode condition. Exclude FINAL, in which the
+    // A/THR is in SPEED (FCOM): otherwise a VPATH THRUST request still present when FINAL engages latches THR IDLE for the
+    // whole approach, because the SPEED condition below may already be true and then has no rising edge.
     FmgcComputer_MATLABFunction_g((((rtb_BusAssignment_jmp.ap_fd_logic.active_longitudinal_law == vertical_law::SPD_MACH)
       || (rtb_BusAssignment_jmp.ap_fd_logic.active_longitudinal_law == vertical_law::SRS) ||
       ((rtb_BusAssignment_jmp.ap_fd_logic.active_longitudinal_law == vertical_law::VPATH) &&
-       (rtb_BusAssignment_jmp.data.fms_inputs.requested_des_submode == fmgc_des_submode::VPATH_THRUST))) &&
+       (rtb_BusAssignment_jmp.data.fms_inputs.requested_des_submode == fmgc_des_submode::VPATH_THRUST) &&
+       (!rtb_BusAssignment_jmp.ap_fd_logic.longitudinal_modes.final_des_active))) &&
       rtb_BusAssignment_jmp.logic.athr_own_engaged), FmgcComputer_P.PulseNode_isRisingEdge_o, &rtb_y_m2,
       &FmgcComputer_DWork.sf_MATLABFunction_j);
     rtb_adrOwnInvalid = !FmgcComputer_DWork.Memory_PreviousInput_hu;
