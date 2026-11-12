@@ -19,6 +19,8 @@ const TOGOX = 18;
 const QN770 = 22;
 const ATVUP = 25;
 const QN760 = 30;
+// The coded final descent starts after QN760 in this example
+const FDP = 31;
 
 const constraints: SmoothingConstraint[] = [
   { distanceFromStart: ATKIL, minimumAltitude: 10000 },
@@ -57,7 +59,7 @@ function gradients(path: readonly SmoothingPoint[], from: number, to: number): n
 }
 
 describe('smoothApproachPath', () => {
-  const smoothed = smoothApproachPath(original, constraints, ATKIL, speed);
+  const smoothed = smoothApproachPath(original, constraints, ATKIL, FDP, speed);
 
   it('crosses each constraint inside a removed level segment at the constraint altitude', () => {
     expect(interpolatePathAltitude(smoothed, QN770)).toBeCloseTo(7500, -1);
@@ -118,8 +120,8 @@ describe('smoothApproachPath', () => {
       return changed[changed.length - 1].distanceFromStart - changed[0].distanceFromStart;
     };
 
-    const levellingSpan = span(smoothApproachPath(levelling, [], 0, speed));
-    const steepeningSpan = span(smoothApproachPath(steepening, [], 0, speed));
+    const levellingSpan = span(smoothApproachPath(levelling, [], 0, null, speed));
+    const steepeningSpan = span(smoothApproachPath(steepening, [], 0, null, speed));
 
     expect(levellingSpan).toBeGreaterThan(steepeningSpan * 1.5);
   });
@@ -131,6 +133,80 @@ describe('smoothApproachPath', () => {
       { distanceFromStart: 20, altitude: 2000 },
     ];
 
-    expect(interpolatePathAltitude(smoothApproachPath(path, [], 0, speed), 5)).toBeCloseTo(5000, 6);
+    expect(interpolatePathAltitude(smoothApproachPath(path, [], 0, null, speed), 5)).toBeCloseTo(5000, 6);
+  });
+
+  describe('pulling the path down to the approach constraints', () => {
+    // As planned with decelerations: ATKIL crossed at 10750, QN780 at 9600, 8600 only reached just before TOGOX
+    const high: SmoothingPoint[] = [
+      { distanceFromStart: 0, altitude: 13000 },
+      { distanceFromStart: ATKIL - 5, altitude: 11300 },
+      { distanceFromStart: ATKIL, altitude: 10750 },
+      { distanceFromStart: QN780, altitude: 9600 },
+      { distanceFromStart: 17.5, altitude: 8600 },
+      { distanceFromStart: TOGOX, altitude: 8600 },
+      { distanceFromStart: QN770, altitude: 7500 },
+      { distanceFromStart: ATVUP, altitude: 6700 },
+      { distanceFromStart: QN760, altitude: 5100 },
+      { distanceFromStart: 36, altitude: 3300 },
+    ];
+    const pulled = smoothApproachPath(high, constraints, ATKIL, FDP, speed);
+
+    it('crosses the initial approach fix and the following constraints at their altitudes', () => {
+      expect(interpolatePathAltitude(pulled, ATKIL)).toBeCloseTo(10000, -1);
+      expect(interpolatePathAltitude(pulled, QN780)).toBeGreaterThanOrEqual(8600);
+      expect(interpolatePathAltitude(pulled, QN780)).toBeLessThan(8660);
+      expect(interpolatePathAltitude(pulled, 16)).toBeCloseTo(8600, 0);
+      expect(interpolatePathAltitude(pulled, TOGOX)).toBeCloseTo(8600, 0);
+    });
+
+    it('never goes below a constraint', () => {
+      for (const constraint of constraints) {
+        expect(interpolatePathAltitude(pulled, constraint.distanceFromStart)).toBeGreaterThanOrEqual(
+          constraint.minimumAltitude - 1,
+        );
+      }
+    });
+
+    it('joins the earlier path without a steep segment', () => {
+      expect(interpolatePathAltitude(pulled, 0)).toBeCloseTo(13000, 6);
+      for (const gradient of gradients(pulled, ATKIL - 5, ATKIL)) {
+        expect(gradient).toBeLessThanOrEqual(300 + 1);
+      }
+    });
+
+    it('does not pull down to constraints on the coded final descent', () => {
+      // The FDP is before QN760, which the final path crosses above its altitude
+      const final = smoothApproachPath(high, constraints, ATKIL, ATVUP + 0.5, speed);
+      expect(interpolatePathAltitude(final, QN760)).toBeCloseTo(interpolatePathAltitude(high, QN760), 0);
+    });
+
+    it('stays above a constraint that would need a too steep segment', () => {
+      const steep: SmoothingPoint[] = [
+        { distanceFromStart: 0, altitude: 12000 },
+        { distanceFromStart: 10, altitude: 11000 },
+        { distanceFromStart: 11, altitude: 10000 },
+        { distanceFromStart: 20, altitude: 7000 },
+      ];
+      const result = smoothApproachPath(
+        steep,
+        [
+          { distanceFromStart: 10, minimumAltitude: 9000 },
+          { distanceFromStart: 11, minimumAltitude: 8000 },
+        ],
+        10,
+        12,
+        speed,
+      );
+      for (const gradient of gradients(result, 10, 12)) {
+        expect(gradient).toBeLessThanOrEqual(400 + 1);
+      }
+      expect(interpolatePathAltitude(result, 10)).toBeGreaterThanOrEqual(9000);
+    });
+
+    it('does nothing without an FDP', () => {
+      const unchanged = smoothApproachPath(high, constraints, ATKIL, null, speed);
+      expect(interpolatePathAltitude(unchanged, ATKIL)).toBeCloseTo(10750, 0);
+    });
   });
 });
