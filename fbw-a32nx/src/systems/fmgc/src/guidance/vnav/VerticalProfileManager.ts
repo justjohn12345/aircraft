@@ -234,8 +234,9 @@ export class VerticalProfileManager {
   }
 
   /**
-   * Removes the level deceleration segments in the middle of the approach descent and rounds the corners of the path,
-   * so that it can be flown in FINAL APP without overshooting below altitude constraints. See {@link smoothApproachPath}.
+   * Pulls the approach path down to the approach constraints, removes the level deceleration segments in the middle of
+   * the approach descent and rounds the corners of the path, so that FINAL APP can engage at the initial approach fix
+   * and be flown without overshooting below altitude constraints. See {@link smoothApproachPath}.
    */
   private smoothFinalAppApproachPath(profile: NavGeometryProfile): void {
     const startDistance = this.constraintReader.approachStartDistanceFromStart;
@@ -251,8 +252,12 @@ export class VerticalProfileManager {
       maximumAltitude: ConstraintUtils.maximumAltitude(constraint.constraint),
     }));
 
-    const path = smoothApproachPath(profile.checkpoints, constraints, startDistance, (distance) =>
-      profile.interpolateSpeedAtDistance(distance),
+    const path = smoothApproachPath(
+      profile.checkpoints,
+      constraints,
+      startDistance,
+      this.constraintReader.finalDescentPointDistanceFromStart,
+      (distance) => profile.interpolateSpeedAtDistance(distance),
     );
 
     // Points of the new path that are not existing checkpoints, with the predictions interpolated from the original path
