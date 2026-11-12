@@ -204,6 +204,13 @@ export class DescentGuidance {
       }
     }
 
+    // FINAL engages as soon as it is armed and can engage, possibly from a mode in which this guidance only observes
+    // (e.g. ALT CST*), where the last DES submode can still be VPATH THRUST. The FG would then engage FINAL with the
+    // A/THR in THR IDLE and keep it, so don't request VPATH THRUST (A/THR THR IDLE) while FINAL can engage.
+    if (this.finalAppCanEngage && this.requestedVerticalMode === RequestedVerticalMode.VpathThrust) {
+      this.requestedVerticalMode = RequestedVerticalMode.VpathSpeed;
+    }
+
     this.writeToSimVars();
     this.todGuidance.update(deltaTime);
   }
