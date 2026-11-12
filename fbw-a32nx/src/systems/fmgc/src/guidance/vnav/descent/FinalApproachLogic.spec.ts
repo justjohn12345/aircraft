@@ -153,8 +153,9 @@ describe('FinalApproachLogic', () => {
       expect(canFinalAppEngage({ ...atReebo, linearDeviation: 150 })).toBe(true);
     });
 
-    it('does not engage before the path has been intercepted from below', () => {
-      expect(canFinalAppEngage({ ...atReebo, linearDeviation: -200 })).toBe(false);
+    it('does not engage more than 150 ft below the path', () => {
+      expect(canFinalAppEngage({ ...atReebo, linearDeviation: -151 })).toBe(false);
+      expect(canFinalAppEngage({ ...atReebo, linearDeviation: -150 })).toBe(true);
     });
 
     it('does not engage on a level segment after the FDP', () => {
