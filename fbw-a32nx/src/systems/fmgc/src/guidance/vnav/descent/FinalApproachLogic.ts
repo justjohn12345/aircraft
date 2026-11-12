@@ -22,9 +22,10 @@ export const FINAL_APP_FDP_ANTICIPATION_DISTANCE: NauticalMiles = 1.5;
 /**
  * How far below the vertical path the aircraft may be while still being considered to intercept it.
  * The FCOM only states that the aircraft must intercept a descending leg of the vertical path; this tolerance
- * stands in for the moment of interception.
+ * stands in for the moment of interception. Set to the same 150 ft as above the path, so that FINAL APP also engages
+ * when the aircraft is a little low, for example after holding an "at or above" altitude at the initial approach fix.
  */
-export const FINAL_APP_CAPTURE_MAX_BELOW_PATH: Feet = 50;
+export const FINAL_APP_CAPTURE_MAX_BELOW_PATH: Feet = 150;
 
 /**
  * Whether the given approach type is flown with APP NAV / FINAL (non-LS approach) rather than LOC / G/S.
