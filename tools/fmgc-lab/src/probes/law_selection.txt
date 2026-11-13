@@ -1,0 +1,22 @@
+# Probes inserted into a copy of the generated FmgcOuterLoops.cpp (stock line numbers) by scripts/gen_hooked_model.py.
+# Format: BEFORE <line> <name> <C++ expression>   (P. = FmgcOuterLoops_rtP.)
+# Each law's FD and AP pitch command (delta theta, deg) as the FD (4095) and AP (4484) law switches select them; every
+# law is computed every frame, so these are valid whichever law is active.
+BEFORE 4095 fd.alt_hold rtb_lo_n
+BEFORE 4095 fd.alt_acq rtb_Sum_iv
+BEFORE 4095 fd.spd_mach (rtb_AND ? rtb_Sum2_b : (rtb_Y_ds > P.Switch_Threshold ? std::fmax(rtb_Sum2_b, rtb_Gain_pq) : std::fmin(rtb_Sum2_b, rtb_Gain_pq)))
+BEFORE 4095 fd.vs rtb_Gain_ay
+BEFORE 4095 fd.fpa rtb_Gain_aa
+BEFORE 4095 fd.gs P.Gain1_Gain_o * rtb_Sum2_a
+BEFORE 4095 fd.flare (*rtu_in_data_on_ground ? P.Gain2_Gain_h * rtb_k2 : ((P.Gain1_Gain_g * rtb_Divide + *rty_out_flare_law_delta_Theta_bz_deg) + rtb_Mod1_ds * rtb_k1) * P.Gain6_Gain_lb)
+BEFORE 4095 fd.srs rtb_Mod2
+BEFORE 4095 fd.vpath rtb_MaxH_dot_RA
+BEFORE 4484 ap.alt_hold r
+BEFORE 4484 ap.alt_acq rtb_Sum3_pn
+BEFORE 4484 ap.spd_mach rtb_Mod2
+BEFORE 4484 ap.vs rtb_Gain1_k5
+BEFORE 4484 ap.fpa rtb_Mod2_e
+BEFORE 4484 ap.gs std::fmax(-rtb_Divide, std::fmin(rtb_Divide, rtb_Sum2_a))
+BEFORE 4484 ap.flare std::fmax(-rtb_Y_f2, std::fmin(rtb_Y_f2, *rtu_in_data_on_ground ? rtb_k2 : ((*rty_out_flare_law_delta_Theta_bz_deg + *rty_out_flare_law_delta_Theta_bx_deg) + rtb_k1 * *rty_out_flare_law_delta_Theta_H_dot_deg) + *rty_out_flare_law_delta_Theta_beta_c_deg))
+BEFORE 4484 ap.srs std::fmax(-rtb_Sum_iv, std::fmin(rtb_Sum_iv, rtb_Y_ds))
+BEFORE 4484 ap.vpath std::fmax(-rtb_lo_n, std::fmin(rtb_lo_n, P.VS_Gain_d * rtb_MaxH_dot_RA))
