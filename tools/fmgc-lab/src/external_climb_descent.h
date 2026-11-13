@@ -7,6 +7,10 @@
 
 #pragma once
 
-inline void fillClimbDescentExternal(fmgc::readable::ClimbDescentExternal&, const fmgc_outputs& /*out*/,
-                               const FmgcComputer::D_Work_FmgcComputer_T& /*pre*/,
-                               const FmgcComputer::D_Work_FmgcComputer_T& /*post*/) {}
+inline void fillClimbDescentExternal(fmgc::readable::ClimbDescentExternal& e, const fmgc_outputs& /*out*/,
+                                     const FmgcComputer::D_Work_FmgcComputer_T& /*pre*/,
+                                     const FmgcComputer::D_Work_FmgcComputer_T& post) {
+  // 5 s "in flight" confirmation (FmgcComputer.cpp 1276–1277; no output field): the ConfirmNode's output after this
+  // step.
+  e.inFlightFor5s = post.sf_MATLABFunction_fw.output;
+}
