@@ -1,0 +1,9 @@
+# G/S, VPATH and FLARE law internals (readable/laws_path.cpp), for debugging. Stock line numbers.
+BEFORE 3515 gs.accel_term rtb_Gain1_nu
+BEFORE 3515 gs.deviation_term rtb_Sum2_a
+BEFORE 3515 gs.track_blend r
+BEFORE 3515 gs.capture rtb_Y_f2
+BEFORE 3552 gs.path_term rtb_Gain1_nu
+BEFORE 3552 gs.track_fpa_term rtb_MaxH_dot_RA
+BEFORE 3552 gs.beam_angle r
+BEFORE 3552 gs.fpa rtb_Mod2
