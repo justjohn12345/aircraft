@@ -64,6 +64,11 @@ foreach(variant ${MODEL_VARIANTS})
   target_include_directories(fmgc-dump-params-${name} PRIVATE ${gen_dir} ${WASM_SRC})
   target_link_libraries(fmgc-dump-params-${name} PRIVATE fmgc_model_${name} -static)
 
+  add_executable(fmgc-probe-alt-capture-${name} src/probe_alt_capture.cpp)
+  target_include_directories(fmgc-probe-alt-capture-${name} PRIVATE ${WASM_SRC} src)
+  target_compile_options(fmgc-probe-alt-capture-${name} PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(fmgc-probe-alt-capture-${name} PRIVATE fmgc_model_${name} ZLIB::ZLIB -static)
+
   add_executable(fmgc-blocks-test-${name} readable/blocks_test.cpp ${gen_dir}/params.gen.h)
   target_include_directories(fmgc-blocks-test-${name} PRIVATE ${gen_dir} ${WASM_SRC} readable)
   target_compile_options(fmgc-blocks-test-${name} PRIVATE -O2 -ffp-contract=off)
