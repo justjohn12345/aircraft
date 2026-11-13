@@ -51,4 +51,21 @@ foreach(variant ${MODEL_VARIANTS})
   target_include_directories(fmgc-replay-${name} PRIVATE ${gen_dir} ${WASM_SRC} src)
   target_compile_options(fmgc-replay-${name} PRIVATE -O2 -ffp-contract=off)
   target_link_libraries(fmgc-replay-${name} PRIVATE fmgc_model_${name} ZLIB::ZLIB -static)
+
+  # Parameter dictionary (block name = value) and the readable block library's differential test.
+  add_custom_command(
+    OUTPUT ${gen_dir}/params.gen.h
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${gen_dir}
+    COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_params.py ${gen_dir}/params.gen.h
+            FmgcComputer=${dir}/FmgcComputer.h FmgcOuterLoops=${dir}/FmgcOuterLoops.h
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_params.py ${dir}/FmgcComputer.h ${dir}/FmgcOuterLoops.h)
+
+  add_executable(fmgc-dump-params-${name} src/dump_params.cpp ${gen_dir}/params.gen.h)
+  target_include_directories(fmgc-dump-params-${name} PRIVATE ${gen_dir} ${WASM_SRC})
+  target_link_libraries(fmgc-dump-params-${name} PRIVATE fmgc_model_${name} -static)
+
+  add_executable(fmgc-blocks-test-${name} readable/blocks_test.cpp ${gen_dir}/params.gen.h)
+  target_include_directories(fmgc-blocks-test-${name} PRIVATE ${gen_dir} ${WASM_SRC} readable)
+  target_compile_options(fmgc-blocks-test-${name} PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(fmgc-blocks-test-${name} PRIVATE fmgc_model_${name} -static)
 endforeach()
