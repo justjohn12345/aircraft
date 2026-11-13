@@ -7,8 +7,10 @@ here="$(cd "$(dirname "$0")/.." && pwd)"
 repo="$(cd "$here/../.." && pwd)"
 variants=("$@")
 if [ ${#variants[@]} -eq 0 ]; then
-  # stock = upstream master; cst = + ALT CST* sequencing patch; cst_athr = + FINAL A/THR patch (test/combined)
-  variants=(stock=master cst=personal/fg-alt-cst-reversion cst_athr=test/combined)
+  # Each recording must be replayed with the build that flew it (corpus-variants.tsv):
+  # stock = upstream master; cst = + ALT CST* sequencing patch; cst_athr = + FINAL A/THR patch (test/combined as
+  # installed 2026-11-12, efc76f451); combined = the current personal build (test/combined, incl. personal/fmgc-fixes)
+  variants=(stock=master cst=personal/fg-alt-cst-reversion cst_athr=efc76f451 combined=test/combined)
 fi
 list=""
 for v in "${variants[@]}"; do
