@@ -84,11 +84,10 @@ int main(int argc, char** argv) {
       double oldOff = prevOffset;
       double newOff = dw.dH_offset;
       double k = dw.k;
-      double hdot = dw.maxH_dot * (k < 0 ? -1.0 : 1.0);  // sign(Hdot) = sign(k·r); r has the sign of dH
-      double r2 = hdot / k;                              // dH + s·(old + new)
-      double s = sgn(r2);
-      hdot = k * r2;
-      double dH = r2 - s * (oldOff + newOff);
+      const auto& o = computer->getExternalOutputs().out;
+      double dH = o.ap_fd_logic.alt_sel_or_cstr - o.logic.altitude_indicated_ft.Data;  // the law's H_c − H_ind
+      double s = sgn(dH);
+      double hdot = dw.maxH_dot * (k * s < 0 ? -1.0 : 1.0);
       double vsNext = std::fmax(-dw.maxH_dot, std::fmin(dw.maxH_dot, k * (dH + s * newOff)));
       double vsTarget = k * s * newOff;
       // without the stale offset
