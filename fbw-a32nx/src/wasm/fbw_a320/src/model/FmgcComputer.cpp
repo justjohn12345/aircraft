@@ -2519,7 +2519,11 @@ void FmgcComputer::step()
     FmgcComputer_MATLABFunction_i(&FmgcComputer_U.in.bus_inputs.tcas_bus.vertical_resolution_advisory,
       FmgcComputer_P.BitfromLabel7_bit_j, &rtb_DataTypeConversion1_d);
     rtb_y_fi = rtb_y_n;
-    rtb_OR_b = (rtb_Compare_ji || (rtb_y_oy && rtb_NOT_b && ((rtb_y_bb >= FmgcComputer_P.CompareToConstant_const_l5) ||
+    // PERSONAL FIX (hand edit of generated code, not for upstream): ALT* engaged on the ground with an FD on whenever
+    // the FCU altitude (100 ft at power-up) was within the 80 ft minimum capture distance, which then gave V/S on the
+    // ground after an FCU altitude change. The own ALT* engagement now requires being airborne (rtb_y_hy = on ground,
+    // logic.on_ground).
+    rtb_OR_b = (rtb_Compare_ji || (rtb_y_oy && rtb_NOT_b && (!rtb_y_hy) && ((rtb_y_bb >= FmgcComputer_P.CompareToConstant_const_l5) ||
       ((!FmgcComputer_DWork.Delay_DSTATE.longitudinal_modes.pitch_goaround_active) &&
        (!FmgcComputer_DWork.Delay_DSTATE.longitudinal_modes.pitch_takeoff_active))) &&
       ((!FmgcComputer_DWork.Delay_DSTATE.longitudinal_modes.tcas_active) || ((rtb_DataTypeConversion1_d == 0U) &&
