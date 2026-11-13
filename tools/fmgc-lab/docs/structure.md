@@ -73,3 +73,7 @@ Tau/H_bias, RA-rate lead-lag) is at 3108–3186; flare outputs and the 0.3 g / 0
 condition (4560–4565) uses a second 4 rad/s lag of the RA rate; the 100-sample delays Delay_DSTATE_l4/_n belong to the
 lateral laws; the G/S law has no speed protection. The flare law reads the lateral AP sideslip command
 (output.autopilot.Beta_c_deg).
+Corrections from the V/S-FPA rewrite: FPA is 3323–3473 (3110–3320 is the flare V/S law and G/S), V/S 3792–3955,
+SPD_MACH 3560–3790. AP gains: 0.35 × path command, 0.36 × speed laws. In every speed-on-pitch law the switch on the
+constant (1 − 0 > 0) always selects the ±4° limit on speed error / 3; the −0.93 / 0.6·(0.7·accel + γ) limits are dead.
+The "target set to 0 from > 500 fpm" level-off term applies whatever the active law is (docs/laws/alt-capture.md).
