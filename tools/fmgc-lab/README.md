@@ -81,3 +81,27 @@ definitions so the generator's reused temporaries are resolved), annotated with 
 mode output it drives.
 
 Documents: `docs/modes/*.md` (vertical mode logic: set/reset conditions per mode), `docs/laws/alt-capture.md`.
+
+## Phase 2: readable vertical mode logic
+
+`readable/vertical.h` declares every vertical mode, armed mode and derived flag as a `Signal`, updated in the order the
+generated `step()` computes them. Each group has its own files: `readable/vertical_<group>.{h,cpp}` (logic, block
+memories, inputs it needs from the parts not rewritten yet) and `src/external_<group>.h` (fills those inputs from the
+generated model). Groups: `alt` (ALT arm possible, ALT armed, ALT*, ALT, ALT CRZ), `vs_tcas`, `climb_descent`,
+`approach`.
+
+Check against the generated stock model (the oracle, so any recording works, whatever build flew it):
+
+```sh
+build/fmgc-check-vertical-stock [--free] [--fuzz SEED] file.fdr
+scripts/check-vertical-corpus.sh [fuzz runs per file]     # every recording: resync, free-running, fuzzed
+```
+
+- resync: each signal starts from the generated values and is compared and reset to the generated value right after
+  its readable update, so a mismatch points at one signal's logic.
+- `--free`: the readable logic keeps its own state, as it would in the sim.
+- `--fuzz SEED`: random episodes where one input field (discrete, FMS or any ARINC bus field) is stuck at a mutated
+  value for 0.5–30 s (`src/input_fuzzer.h`). The recordings alone miss most edges (a changed 0.72 s takeover delay or
+  250 ft threshold passes them); with fuzzing those mutations are caught.
+
+Signals not rewritten yet take the generated value.

@@ -11,6 +11,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <functional>
 #include <memory>
 #include <string>
 #include <utility>
@@ -41,6 +42,14 @@ class Replayer {
     inputs_ = std::make_unique<FmgcComputer::ExternalInputs_FmgcComputer_T>();
     std::memset(inputs_.get(), 0, sizeof(*inputs_));
   }
+
+  /** Called around every FmgcComputer::step(), including the steps that fill unrecorded gaps. */
+  std::function<void()> beforeStep;
+  std::function<void()> afterStep;
+
+  /** The inputs of the step being run (valid inside the hooks; beforeStep may modify them). */
+  const fmgc_inputs& inputs() const { return inputs_->in; }
+  fmgc_inputs& mutableInputs() { return inputs_->in; }
 
   bool ok() const { return reader_.ok(); }
   const std::string& error() const { return reader_.error(); }
@@ -82,8 +91,7 @@ class Replayer {
           in.time.dt = fillDt;
           in.time.simulation_time += fillDt;
           in.time.monotonic_time = monotonicTime_;
-          computer_.setExternalInputs(inputs_.get());
-          computer_.step();
+          stepComputer();
         }
         gapSteps_ += steps;
         gapList_.push_back({frames_, gap});
@@ -106,8 +114,7 @@ class Replayer {
     in.bus_inputs = rec.bus_inputs;
 
     auto t0 = std::chrono::steady_clock::now();
-    computer_.setExternalInputs(inputs_.get());
-    computer_.step();
+    stepComputer();
     stepSeconds_ += std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
 
     out = {frames_, frame_.get(), running};
@@ -117,6 +124,17 @@ class Replayer {
   }
 
  private:
+  void stepComputer() {
+    if (beforeStep) {
+      beforeStep();
+    }
+    computer_.setExternalInputs(inputs_.get());
+    computer_.step();
+    if (afterStep) {
+      afterStep();
+    }
+  }
+
   FdrReader reader_;
   Options opt_;
   FmgcComputer& computer_;
