@@ -19,7 +19,8 @@ Each variant is the generated `model/` folder at a git ref (`scripts/extract-mod
 |---|---|---|
 | `stock` | `master` | upstream generated code |
 | `cst` | `personal/fg-alt-cst-reversion` | + ALT CST* → V/S on constraint sequencing patch |
-| `cst_athr` | `test/combined` | + A/THR SPEED in FINAL patch |
+| `cst_athr` | `efc76f451` | + A/THR SPEED in FINAL patch (test/combined as installed 2026-11-12) |
+| `combined` | `test/combined` | the current personal build, including FMGC fixes from `personal/fmgc-fixes` (e.g. ALT* creep) |
 
 ## Replay
 
