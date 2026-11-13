@@ -28,6 +28,7 @@
 #undef private
 
 #include "input_fuzzer.h"
+#include "scenario_approach.h"
 #include "replay_core.h"
 #include "vertical.h"
 
@@ -153,6 +154,9 @@ struct Stats {
   double firstTime = 0;
   bool firstGenerated = false;
   long lastStep = -1;
+  long trueSteps = 0;  // coverage: steps where the generated signal was true
+  long rises = 0;      // coverage: false -> true transitions
+  bool prevGenerated = false;
 };
 
 }  // namespace
@@ -160,6 +164,7 @@ struct Stats {
 int main(int argc, char** argv) {
   bool freeRunning = false;
   long fuzzSeed = -1;
+  long approachSeed = -1;
   std::string path;
   for (int i = 1; i < argc; i++) {
     std::string a = argv[i];
@@ -167,15 +172,17 @@ int main(int argc, char** argv) {
       freeRunning = true;
     } else if (a == "--fuzz" && i + 1 < argc) {
       fuzzSeed = std::atol(argv[++i]);
+    } else if (a == "--approach" && i + 1 < argc) {
+      approachSeed = std::atol(argv[++i]);
     } else if (path.empty() && !a.empty() && a[0] != '-') {
       path = a;
     } else {
-      std::fprintf(stderr, "usage: fmgc-check-vertical [--free] [--fuzz SEED] <file.fdr>\n");
+      std::fprintf(stderr, "usage: fmgc-check-vertical [--free] [--fuzz SEED] [--approach SEED] <file.fdr>\n");
       return 2;
     }
   }
   if (path.empty()) {
-    std::fprintf(stderr, "usage: fmgc-check-vertical [--free] [--fuzz SEED] <file.fdr>\n");
+    std::fprintf(stderr, "usage: fmgc-check-vertical [--free] [--fuzz SEED] [--approach SEED] <file.fdr>\n");
     return 2;
   }
 
@@ -200,7 +207,14 @@ int main(int argc, char** argv) {
   if (fuzzSeed >= 0) {
     fuzzer = std::make_unique<InputFuzzer>(static_cast<uint64_t>(fuzzSeed));
   }
+  std::unique_ptr<ApproachScenario> scenario;
+  if (approachSeed >= 0) {
+    scenario = std::make_unique<ApproachScenario>(static_cast<uint64_t>(approachSeed));
+  }
   replayer.beforeStep = [&]() {
+    if (scenario) {
+      scenario->apply(replayer.mutableInputs(), replayer.inputs().time.dt);
+    }
     if (fuzzer) {
       fuzzer->apply(replayer.mutableInputs(), replayer.inputs().time.dt);
     }
@@ -252,6 +266,9 @@ int main(int argc, char** argv) {
       }
       Stats& st = stats[i];
       st.implemented = true;
+      st.trueSteps += generated;
+      st.rises += generated && !st.prevGenerated;
+      st.prevGenerated = generated;
       if (s.v[i] != generated) {
         if (st.firstStep < 0) {
           st.firstStep = steps;
@@ -281,8 +298,11 @@ int main(int argc, char** argv) {
                         " episodes)").c_str()
                      : "",
               steps, checkedSteps);
-  std::printf("\n%-16s %6s %9s %10s %10s %10s %6s\n", "signal", "impl", "mismatch", "first", "t_first", "last",
-              "gen@1st");
+  if (scenario) {
+    std::printf("approach scenario seed %ld\n", approachSeed);
+  }
+  std::printf("\n%-16s %6s %9s %10s %10s %10s %6s %10s %7s\n", "signal", "impl", "mismatch", "first", "t_first", "last",
+              "gen@1st", "true", "rises");
   for (size_t i = 0; i < kSignalCount; i++) {
     const Stats& st = stats[i];
     if (!st.implemented) {
@@ -292,8 +312,8 @@ int main(int argc, char** argv) {
     if (st.mismatches) {
       failing++;
     }
-    std::printf("%-16s %6s %9ld %10ld %10.2f %10ld %6d\n", fmgc::readable::signalName(static_cast<Signal>(i)), "yes",
-                st.mismatches, st.firstStep, st.firstTime, st.lastStep, st.firstGenerated);
+    std::printf("%-16s %6s %9ld %10ld %10.2f %10ld %6d %10ld %7ld\n", fmgc::readable::signalName(static_cast<Signal>(i)),
+                "yes", st.mismatches, st.firstStep, st.firstTime, st.lastStep, st.firstGenerated, st.trueSteps, st.rises);
   }
   std::printf("\n%ld signals rewritten, %ld with mismatches\n", implemented, failing);
   return failing == 0 ? 0 : 1;
