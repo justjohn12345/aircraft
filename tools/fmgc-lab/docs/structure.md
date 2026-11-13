@@ -67,3 +67,9 @@ Every path law has the same shape: path error → Δγ = asin(ΔV/S / V_tas); tw
 VLS and to VMAX); `SpeedProtectionSignalSelection` with a 5 kt margin; AP command a fixed fraction of the FD command
 (0.35 / 0.36 in ALT_ACQ; other laws not yet checked). That repetition explains the block inventory (32 low-pass + 32
 high-pass filters: one pair per speed law instance). Line ranges marked ~ are approximate boundaries.
+
+Corrections from the Phase 3 G/S-VPATH-FLARE rewrite: VPATH is only 4070–4094; the FLARE V/S law (exponential flare,
+Tau/H_bias, RA-rate lead-lag) is at 3108–3186; flare outputs and the 0.3 g / 0.6 g AP limits at 4310–4319; the flare
+condition (4560–4565) uses a second 4 rad/s lag of the RA rate; the 100-sample delays Delay_DSTATE_l4/_n belong to the
+lateral laws; the G/S law has no speed protection. The flare law reads the lateral AP sideslip command
+(output.autopilot.Beta_c_deg).

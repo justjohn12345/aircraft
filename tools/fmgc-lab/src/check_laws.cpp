@@ -155,6 +155,9 @@ int main(int argc, char** argv) {
     unpackOuterInputs(labHooks().outerIn, io);
     ap_laws_output gen = io;
     unpackOuterOutputs(labHooks().outerOut, gen);
+    // The lateral laws run before the vertical ones in the same step: their outputs that the vertical laws read are
+    // inputs here (the flare law uses the AP sideslip command).
+    io.output.autopilot.Beta_c_deg = gen.output.autopilot.Beta_c_deg;
     check.time = io.time.simulation_time;
 
     L::LawResults readable;
