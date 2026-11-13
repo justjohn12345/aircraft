@@ -77,3 +77,8 @@ Corrections from the V/S-FPA rewrite: FPA is 3323–3473 (3110–3320 is the fla
 SPD_MACH 3560–3790. AP gains: 0.35 × path command, 0.36 × speed laws. In every speed-on-pitch law the switch on the
 constant (1 − 0 > 0) always selects the ±4° limit on speed error / 3; the −0.93 / 0.6·(0.7·accel + γ) limits are dead.
 The "target set to 0 from > 500 fpm" level-off term applies whatever the active law is (docs/laws/alt-capture.md).
+Corrections from the speed/SRS rewrite: SPD_MACH law 3557–3655; SRS 3956–4069 (VPATH proper 4070–4095); 4170–4480
+holds the flare law and the AP side of SPD/SRS (4456–4476). SPD_MACH and SRS share one speed-on-pitch subsystem
+(acceleration in g from a complementary filter of ground-speed and IAS rates, + γ, speed error at 3 kt/deg limited by
+energy rate, ≥ 120 ft/min towards the altitude target). SRS: 18° pitch limit and 120 ft/min minimum confirmed; no
+22.5° windshear limit in the outer loop; the speed target comes in as V_c.
