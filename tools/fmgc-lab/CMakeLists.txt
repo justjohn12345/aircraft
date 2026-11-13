@@ -69,6 +69,13 @@ foreach(variant ${MODEL_VARIANTS})
   target_compile_options(fmgc-probe-alt-capture-${name} PRIVATE -O2 -ffp-contract=off)
   target_link_libraries(fmgc-probe-alt-capture-${name} PRIVATE fmgc_model_${name} ZLIB::ZLIB -static)
 
+  add_executable(fmgc-check-vertical-${name} src/check_vertical.cpp readable/vertical.cpp readable/vertical_alt.cpp
+    readable/vertical_vs_tcas.cpp readable/vertical_climb_descent.cpp readable/vertical_approach.cpp
+    ${gen_dir}/fields.gen.h)
+  target_include_directories(fmgc-check-vertical-${name} PRIVATE ${gen_dir} ${WASM_SRC} src readable)
+  target_compile_options(fmgc-check-vertical-${name} PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(fmgc-check-vertical-${name} PRIVATE fmgc_model_${name} ZLIB::ZLIB -static)
+
   add_executable(fmgc-blocks-test-${name} readable/blocks_test.cpp ${gen_dir}/params.gen.h)
   target_include_directories(fmgc-blocks-test-${name} PRIVATE ${gen_dir} ${WASM_SRC} readable)
   target_compile_options(fmgc-blocks-test-${name} PRIVATE -O2 -ffp-contract=off)
