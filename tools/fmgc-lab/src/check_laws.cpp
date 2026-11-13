@@ -168,7 +168,7 @@ int main(int argc, char** argv) {
     for (int k = 1; k < L::kLawCount; k++) {
       generated[k].fd = probe((std::string("fd.") + lawProbe[k]).c_str());
       generated[k].ap = probe((std::string("ap.") + lawProbe[k]).c_str());
-      if (!std::isnan(readable.cmd[k].fd) || !std::isnan(readable.cmd[k].ap)) {
+      if (readable.rewritten[k]) {
         check.compare(std::string("law.") + lawProbe[k] + ".fd", generated[k].fd, readable.cmd[k].fd);
         check.compare(std::string("law.") + lawProbe[k] + ".ap", generated[k].ap, readable.cmd[k].ap);
       }
@@ -188,7 +188,7 @@ int main(int argc, char** argv) {
     // output stage
     L::LawCommand feed[L::kLawCount];
     for (int k = 0; k < L::kLawCount; k++) {
-      bool useReadable = freeRunning && !std::isnan(readable.cmd[k].fd) && !std::isnan(readable.cmd[k].ap);
+      bool useReadable = freeRunning && readable.rewritten[k];
       feed[k] = useReadable ? readable.cmd[k] : generated[k];
     }
     L::PitchOutputs po{};

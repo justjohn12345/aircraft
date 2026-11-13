@@ -35,6 +35,7 @@ struct LawCommand {
 
 struct LawResults {
   LawCommand cmd[kLawCount];
+  bool rewritten[kLawCount]{};  // laws rewritten so far (their commands are compared even when NaN)
   ap_raw_laws_flare flare{};  // flare law outputs (output.flare_law), valid when flareValid
   bool flareValid = false;
 };
