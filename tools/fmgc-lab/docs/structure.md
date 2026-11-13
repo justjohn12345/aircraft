@@ -82,3 +82,6 @@ holds the flare law and the AP side of SPD/SRS (4456–4476). SPD_MACH and SRS s
 (acceleration in g from a complementary filter of ground-speed and IAS rates, + γ, speed error at 3 kt/deg limited by
 energy rate, ≥ 120 ft/min towards the altitude target). SRS: 18° pitch limit and 120 ft/min minimum confirmed; no
 22.5° windshear limit in the outer loop; the speed target comes in as V_c.
+Corrections from the ALT*/ALT rewrite: the ALT_HOLD AP command is computed at 4304 (vsLimit(0.7 × FD)); the ALT*
+speed laws start at 2951 (2815–2950 fills a bus structure); the ALT hold target is frozen while ALT_HOLD is active and
+set to 0 only at power-up (init), not on reset.

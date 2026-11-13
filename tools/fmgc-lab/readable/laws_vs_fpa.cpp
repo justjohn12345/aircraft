@@ -79,15 +79,15 @@ double flightPathAngleDeg(const ap_laws_output& in) {
 double speedOnPitchCommand(const ap_laws_output& in, SpeedOnPitchFilters& f, double gammaDeg, double targetSpeedKn) {
   const double dt = in.time.dt;
   double phi = kDegToRad * in.data.Phi_deg;
-  double groundAccel = f.groundSpeedWashout.update(
+  double groundAccel = f.groundSpeedRate.update(
       kGroundSpeedWashoutGain * (kGroundSpeedToCas * (kKnotsToMsShort * in.data.V_gnd_kn)), kGroundSpeedWashoutC1, dt);
   // g component along track due to attitude (pitch above the flight path in a bank, sideslip of the track)
   double attitudeDeg = kRadToDeg * ((kDegToRad * in.data.Theta_deg - kDegToRad * gammaDeg) * (1.0 - std::cos(phi)) +
                                     std::sin(phi) * std::sin(kDegToRad * in.data.Psi_magnetic_track_deg -
                                                              kDegToRad * in.data.Psi_magnetic_deg));
-  double inertial = f.inertialHighPass.update(groundAccel - kG * (kDegToRad * attitudeDeg), kHighPassC1, kHighPassC2,
+  double inertial = f.inertialAccelHighPass.update(groundAccel - kG * (kDegToRad * attitudeDeg), kHighPassC1, kHighPassC2,
                                               kHighPassC3, kHighPassC4, dt);
-  double airspeed = f.airspeedLowPass.update(kKnotsToMsShort * in.data.V_ias_kn, kLowPassC1, kLowPassC2, kLowPassC3,
+  double airspeed = f.airspeedRate.update(kKnotsToMsShort * in.data.V_ias_kn, kLowPassC1, kLowPassC2, kLowPassC3,
                                              kLowPassC4, dt);
   double accelG = (inertial + airspeed) * kOneOverG;
   double energyAngle = accelG + kDegToRad * gammaDeg;

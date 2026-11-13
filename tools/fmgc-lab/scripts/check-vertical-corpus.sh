@@ -8,6 +8,10 @@ here="$(cd "$(dirname "$0")/.." && pwd)"
 runs=${1:-3}
 bin=${2:-$here/build/fmgc-check-vertical-stock}
 corpus=${CORPUS:-$HOME/fdr-corpus/raw}
+if [ -n "$(find "$here/readable" "$here/src" -newer "$bin" \( -name '*.cpp' -o -name '*.h' \) 2>/dev/null | head -1)" ]; then
+  echo "error: $bin is older than the sources in readable/ or src/ (rebuild failed or not run)" >&2
+  exit 2
+fi
 out=$here/build/check-vertical
 rm -rf "$out" && mkdir -p "$out"
 jobs=()

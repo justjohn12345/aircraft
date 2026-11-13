@@ -9,6 +9,10 @@ runs=${1:-2}
 bin=${2:-$here/build/fmgc-check-laws}
 jobs=${JOBS:-$(nproc)}
 corpus=${CORPUS:-$HOME/fdr-corpus/raw}
+if [ -n "$(find "$here/readable" "$here/src" -newer "$bin" \( -name '*.cpp' -o -name '*.h' \) 2>/dev/null | head -1)" ]; then
+  echo "error: $bin is older than the sources in readable/ or src/ (rebuild failed or not run)" >&2
+  exit 2
+fi
 out=$here/build/check-laws
 rm -rf "$out" && mkdir -p "$out"
 run() { "$bin" "$@" > "$out/$name.txt" 2>&1; }

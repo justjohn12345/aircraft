@@ -5,6 +5,8 @@
 // Output stage of the vertical laws: picks the active law's FD and AP commands and turns them into the FD and AP pitch
 // commands. Generated: FmgcOuterLoops.cpp 4095–4167 (FD) and 4484–4559 (AP).
 
+#include <initializer_list>
+
 #include "laws.h"
 
 namespace fmgc::readable::laws {
@@ -50,6 +52,9 @@ void VerticalLaws::computeLaws(const ap_laws_output& in, LawResults& out) {
   computeVsFpa(in, out);
   computeSpeed(in, out);
   computePath(in, out);
+  for (int law : {AltHold, AltAcq, SpdMach, Vs, Fpa, Gs, Flare, Srs, Vpath}) {
+    out.rewritten[law] = true;
+  }
 }
 
 bool VerticalLaws::computeOutputs(const ap_laws_output& in, const LawCommand (&cmd)[kLawCount], PitchOutputs& out) {
