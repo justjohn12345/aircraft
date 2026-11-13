@@ -7,6 +7,12 @@
 
 #pragma once
 
-inline void fillApproachExternal(fmgc::readable::ApproachExternal&, const fmgc_outputs& /*out*/,
-                               const FmgcComputer::D_Work_FmgcComputer_T& /*pre*/,
-                               const FmgcComputer::D_Work_FmgcComputer_T& /*post*/) {}
+inline void fillApproachExternal(fmgc::readable::ApproachExternal& e, const fmgc_outputs& /*out*/,
+                                 const FmgcComputer::D_Work_FmgcComputer_T& pre,
+                                 const FmgcComputer::D_Work_FmgcComputer_T& /*post*/) {
+  // The mode logic reads the outer loops' output of the previous step (Delay2_DSTATE, written at the end of step()).
+  // On a (re)start the generated step first sets it to its initial condition.
+  const ap_raw_output& lastOuterLoops =
+      pre.Runtime_MODE ? pre.Delay2_DSTATE : FmgcComputer::FmgcComputer_P.Delay2_InitialCondition;
+  e.lastFlareCondition = lastOuterLoops.flare_law.condition_Flare;
+}
