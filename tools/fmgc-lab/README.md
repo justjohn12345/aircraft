@@ -50,3 +50,33 @@ Details:
 - Speed: ~400,000 `step()` calls per second per core (~100,000 frames/s including decompression and comparison).
 - Detection check: replaying 2026-11-12-17-08-01 (recorded on `cst`) through `cst_athr` shows the A/THR FMA mode
   replayed as SPEED (7) where the sim latched THR IDLE (12) at FINAL engagement (t = 4472.87 s).
+
+## Phase 1 tools (mapping the generated code)
+
+Built by `scripts/build.sh` alongside the replay binaries:
+
+- `build/fmgc-blocks-test-<variant>`: differential test of the readable block library (`readable/blocks.h`: A429
+  decoding, ConfirmNode, PulseNode, MTrigNode, SR flip-flop, lag/lead-lag/washout filters, switch blend, turn-direction
+  chart, heading bank limit, NAV gains, median voter, V/S limiter, speed protection) against the generated helpers on
+  random input sequences: bit-identical over ~71 M checks. Also checks that all 55 SR flip-flop truth tables are the
+  Simulink default (reset wins).
+- `build/fmgc-dump-params-<variant> [FmgcComputer|FmgcOuterLoops]`: every parameter as `block name = value`
+  (`docs/params-*.txt`).
+- `build/fmgc-probe-alt-capture-<variant> file.fdr`: ALT* capture law state at every capture (see
+  `docs/laws/alt-capture.md`). `src/replay_core.h` is the shared replay loop for writing probes like it.
+
+Backward slicer: `scripts/ast.sh <variant> <FmgcComputer|FmgcOuterLoops>` dumps the clang AST of `step()` (in the dev
+container), then
+
+```sh
+python3 scripts/slice.py build/ast/stock-FmgcComputer.json build/models/stock/FmgcComputer.cpp \
+  FmgcComputer_DWork.Memory_PreviousInput_ne --at 2549 --no-wrap --stop 'Memory_PreviousInput|Delay_DSTATE' \
+  --params docs/params-FmgcComputer.txt --keys
+```
+
+prints only the lines that can affect a variable at a given line (data and control dependencies, with reaching
+definitions so the generator's reused temporaries are resolved), annotated with parameter values, and lists the leaves
+(inputs, parameters, previous-frame state). `docs/latches.tsv` lists every SR flip-flop latch, its update line and the
+mode output it drives.
+
+Documents: `docs/modes/*.md` (vertical mode logic: set/reset conditions per mode), `docs/laws/alt-capture.md`.

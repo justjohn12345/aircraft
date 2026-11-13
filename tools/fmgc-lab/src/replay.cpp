@@ -18,8 +18,8 @@
 #include <vector>
 
 #include "FmgcComputer.h"
-#include "fdr.h"
 #include "fields.gen.h"
+#include "replay_core.h"
 
 namespace {
 
@@ -151,89 +151,27 @@ int main(int argc, char** argv) {
     return 2;
   }
 
-  FdrReader reader(opt.path);
-  if (!reader.ok()) {
-    std::fprintf(stderr, "error: %s\n", reader.error().c_str());
+  auto computer = std::make_unique<FmgcComputer>();
+  computer->initialize();
+  Replayer replayer(opt.path, {opt.assumeRunning, opt.fillGaps}, *computer);
+  if (!replayer.ok()) {
+    std::fprintf(stderr, "error: %s\n", replayer.error().c_str());
     return 2;
   }
 
-  auto computer = std::make_unique<FmgcComputer>();
-  computer->initialize();
-
-  auto frame = std::make_unique<FdrFrame>();
-  auto previous = std::make_unique<FmgcRecord>();
-  std::memset(previous.get(), 0, sizeof(FmgcRecord));
-  auto inputs = std::make_unique<FmgcComputer::ExternalInputs_FmgcComputer_T>();
-  std::memset(inputs.get(), 0, sizeof(*inputs));
-
   std::map<std::string, FieldStats> stats;
-  long frames = 0, compared = 0, mismatchFrames = 0, notRunningFrames = 0;
+  long compared = 0, mismatchFrames = 0;
   long firstMismatchFrame = -1;
-  long gaps = 0, gapSteps = 0;
-  std::vector<std::pair<long, double>> gapList;
-  double monotonicTime = 0;
   auto start = std::chrono::steady_clock::now();
-  double stepSeconds = 0;
 
-  for (; reader.next(*frame); frames++) {
-    const BaseData& base = frame->base;
-    FmgcRecord& rec = frame->fmgc1;
-
-    // When the computer is not running, step() leaves its outputs untouched, so the recorded FMGC block (including
-    // the copy of its inputs) is frozen. Any change means it ran this frame.
-    bool running = opt.assumeRunning || frames == 0 || std::memcmp(&rec, previous.get(), sizeof(FmgcRecord)) != 0;
-    if (!running) {
-      notRunningFrames++;
-    }
-
-    auto& in = inputs->in;
-
-    // Unrecorded frames: the recorder is skipped during active pause while the computers keep running, which shows
-    // as a jump in simulation time larger than this frame's dt. Fill the gap by stepping with the last inputs held
-    // (the aircraft is frozen in active pause), at the last frame's dt.
-    if (frames > 0 && opt.fillGaps) {
-      double gap = base.simulation_time_s - in.time.simulation_time - base.simulation_delta_time_s;
-      double fillDt = in.time.dt > 0 ? in.time.dt : base.simulation_delta_time_s;
-      if (gap > 0.1 && fillDt > 0) {
-        long steps = std::lround(gap / fillDt);
-        fillDt = gap / steps;
-        for (long i = 0; i < steps; i++) {
-          monotonicTime += fillDt;
-          in.time.dt = fillDt;
-          in.time.simulation_time += fillDt;
-          in.time.monotonic_time = monotonicTime;
-          computer->setExternalInputs(inputs.get());
-          computer->step();
-        }
-        gaps++;
-        gapSteps += steps;
-        gapList.push_back({frames, gap});
-      }
-    }
-
-    monotonicTime += base.simulation_delta_time_s;
-    in.time.dt = base.simulation_delta_time_s;
-    in.time.simulation_time = base.simulation_time_s;
-    in.time.monotonic_time = monotonicTime;
-    // The laws are not run (and nothing is recorded) during slew and pause, so these are false on recorded frames.
-    // FIXME slew_on is true on the first frame after a slew; not recoverable from the recording.
-    in.sim_data.slew_on = false;
-    in.sim_data.pause_on = false;
-    in.sim_data.tracking_mode_on_override = false;
-    in.sim_data.tailstrike_protection_on = false;
-    in.sim_data.computer_running = running;
-    in.discrete_inputs = rec.discrete_inputs;
-    in.fms_inputs = rec.fms_inputs;
-    in.bus_inputs = rec.bus_inputs;
-
-    auto t0 = std::chrono::steady_clock::now();
-    computer->setExternalInputs(inputs.get());
-    computer->step();
-    stepSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-
-    if (frames >= opt.from && (opt.to < 0 || frames <= opt.to) && running) {
+  Replayer::Frame f;
+  while (replayer.next(f)) {
+    // Frame 0 is not compared: whether the computer was already running when the recording started is unknown
+    // (when it wasn't, the recorded outputs are the unpowered zeros).
+    if (f.index > 0 && f.index >= opt.from && (opt.to < 0 || f.index <= opt.to) && f.running) {
+      FmgcRecord rec = f.fdr->fmgc1;
       fmgc_outputs out = computer->getExternalOutputs().out;
-      Comparator cmp{opt, stats, frames, base.simulation_time_s};
+      Comparator cmp{opt, stats, f.index, f.fdr->base.simulation_time_s};
       visit(cmp, "logic.", rec.logic, out.logic);
       visit(cmp, "ap_fd_logic.", rec.ap_fd_logic, out.ap_fd_logic);
       visit(cmp, "ap_fd_outer_loops.", rec.ap_fd_outer_loops, out.ap_fd_outer_loops);
@@ -244,13 +182,17 @@ int main(int argc, char** argv) {
       if (cmp.anyMismatch) {
         mismatchFrames++;
         if (firstMismatchFrame < 0) {
-          firstMismatchFrame = frames;
+          firstMismatchFrame = f.index;
         }
       }
     }
-
-    *previous = rec;
   }
+  long frames = replayer.frames();
+  long notRunningFrames = replayer.notRunningFrames();
+  long gaps = static_cast<long>(replayer.gaps().size());
+  long gapSteps = replayer.gapSteps();
+  const auto& gapList = replayer.gaps();
+  double stepSeconds = replayer.stepSeconds();
 
   double wall = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
 

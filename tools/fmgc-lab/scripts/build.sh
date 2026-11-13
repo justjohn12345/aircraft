@@ -19,4 +19,4 @@ for v in "${variants[@]}"; do
 done
 list=${list#;}
 cd "$repo"
-./scripts/dev-env/run.sh bash -c "cd tools/fmgc-lab && cmake -S . -B build/cmake -G Ninja -DMODEL_VARIANTS='$list' >/dev/null && cmake --build build/cmake && cp build/cmake/fmgc-replay-* build/cmake/fmgc-dump-params-* build/cmake/fmgc-blocks-test-* build/"
+./scripts/dev-env/run.sh bash -c "cd tools/fmgc-lab && cmake -S . -B build/cmake -G Ninja -DMODEL_VARIANTS='$list' >/dev/null && cmake --build build/cmake && cp build/cmake/fmgc-replay-* build/cmake/fmgc-dump-params-* build/cmake/fmgc-blocks-test-* build/cmake/fmgc-probe-* build/"
