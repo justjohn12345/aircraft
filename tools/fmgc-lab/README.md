@@ -105,3 +105,18 @@ scripts/check-vertical-corpus.sh [fuzz runs per file]     # every recording: res
   250 ft threshold passes them); with fuzzing those mutations are caught.
 
 Signals not rewritten yet take the generated value.
+
+## Phase 3: readable vertical control laws
+
+`readable/laws.h`: every vertical law computes its FD and AP pitch command (delta theta) every frame; the output stage
+(`readable/laws_output.cpp`, done) picks the active law's and turns them into the FD and AP theta commands. Groups:
+`laws_alt` (ALT_ACQ, ALT_HOLD), `laws_vs_fpa`, `laws_speed` (SPD_MACH, SRS), `laws_path` (G/S, VPATH, FLARE + flare law
+outputs). Laws not rewritten yet return NaN and are skipped.
+
+Check: `build/fmgc-check-laws [--free] [--fuzz SEED] [--approach SEED] [--tol X] file.fdr`, whole corpus
+`JOBS=4 scripts/check-laws-corpus.sh [fuzz runs]`. It runs an instrumented copy of the stock model
+(`scripts/gen_hooked_model.py`, built into `build/cmake/hooked-stock/`; the repo's model/ is never touched): the
+FmgcComputer's calls to its outer loops are captured with all inputs and outputs (`src/lab_hooks.h`), and probe
+statements inserted before given lines (`src/probes/*.txt`, `BEFORE <line> <name> <expr>`) report intermediate values.
+`law_selection.txt` taps every law's FD/AP command just before the two law switches, so each law is compared every
+frame whichever law is active; add your own probe file to tap a law's internals while debugging. Exact comparison.

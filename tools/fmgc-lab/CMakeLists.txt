@@ -81,3 +81,40 @@ foreach(variant ${MODEL_VARIANTS})
   target_compile_options(fmgc-blocks-test-${name} PRIVATE -O2 -ffp-contract=off)
   target_link_libraries(fmgc-blocks-test-${name} PRIVATE fmgc_model_${name} -static)
 endforeach()
+
+# Control-law checks (Phase 3): an instrumented copy of the stock model (outer-loop call hooks and probes), never the
+# repo's model/ folder. Built when a variant named "stock" exists.
+foreach(variant ${MODEL_VARIANTS})
+  string(REPLACE "=" ";" parts ${variant})
+  list(GET parts 0 name)
+  list(GET parts 1 dir)
+  if(NOT name STREQUAL "stock")
+    continue()
+  endif()
+  set(hooked_dir ${CMAKE_CURRENT_BINARY_DIR}/hooked-stock)
+  file(GLOB probe_files ${CMAKE_CURRENT_SOURCE_DIR}/src/probes/*.txt)
+  add_custom_command(
+    OUTPUT ${hooked_dir}/FmgcComputer.cpp ${hooked_dir}/FmgcOuterLoops.cpp ${hooked_dir}/outer_io.gen.h
+    COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_hooked_model.py ${dir} ${hooked_dir} ${probe_files}
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_hooked_model.py ${probe_files} ${dir}/FmgcComputer.cpp
+            ${dir}/FmgcOuterLoops.cpp)
+  add_library(fmgc_model_stock_hooked STATIC
+    ${hooked_dir}/FmgcComputer.cpp
+    ${dir}/FmgcComputer_data.cpp
+    ${hooked_dir}/FmgcOuterLoops.cpp
+    ${dir}/look1_binlxpw.cpp
+    ${dir}/look1_iflf_binlxpw.cpp
+    ${dir}/look2_binlxpw.cpp
+    ${dir}/look2_pbinlxpw.cpp
+    ${dir}/rt_modd.cpp)
+  target_include_directories(fmgc_model_stock_hooked PUBLIC ${dir} ${CMAKE_CURRENT_SOURCE_DIR}/src)
+  target_compile_options(fmgc_model_stock_hooked PRIVATE -O2 -ffp-contract=off)
+
+  add_executable(fmgc-check-laws src/check_laws.cpp readable/laws_output.cpp readable/laws_alt.cpp
+    readable/laws_vs_fpa.cpp readable/laws_speed.cpp readable/laws_path.cpp ${hooked_dir}/outer_io.gen.h
+    ${CMAKE_CURRENT_BINARY_DIR}/gen-stock/fields.gen.h)
+  target_include_directories(fmgc-check-laws PRIVATE ${hooked_dir} ${CMAKE_CURRENT_BINARY_DIR}/gen-stock ${WASM_SRC} src
+    readable)
+  target_compile_options(fmgc-check-laws PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(fmgc-check-laws PRIVATE fmgc_model_stock_hooked ZLIB::ZLIB -static)
+endforeach()
