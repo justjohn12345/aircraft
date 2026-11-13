@@ -2,7 +2,8 @@
 //
 // SPDX-License-Identifier: GPL-3.0
 
-// V/S, FPA, V/S reversion, TCAS, ALT soft mode (vertical_vs_tcas.cpp): block memories, and inputs from the parts of the FMGC not rewritten yet.
+// V/S, FPA, V/S reversion, TCAS, ALT soft mode (vertical_vs_tcas.cpp): block memories, and inputs from the parts of the
+// FMGC not rewritten yet.
 
 #pragma once
 
@@ -10,9 +11,36 @@
 
 namespace fmgc::readable {
 
-struct VsTcasState {};
+struct VsTcasState {
+  // V/S reversion
+  blocks::EdgeDetector landLost;         // LAND armed or active went false
+  blocks::EdgeDetector navLost;          // NAV went false
+  blocks::EdgeDetector apprPushed;       // FCU APPR pushed
+  double altCaptureTargetFt = 0;         // ALT* target on the frame ALT* engaged (sample and hold)
+
+  // V/S-FPA
+  blocks::EdgeDetector vsKnobPushedOrPulled;
+  blocks::EdgeDetector apFdEngaged;      // first AP or FD engaged
+  blocks::ConfirmNode airborne5s;        // in the air for 5 s
+  blocks::ConfirmNode vsFpaCondRecent;   // V/S-FPA set condition true within the last 0.72 s
+
+  // TCAS
+  blocks::EdgeDetector raOnset;          // TCAS RA started
+  blocks::ConfirmNode tcasCondRecent;    // TCAS set condition true within the last 0.72 s
+  double tcasAltAcqTargetFt = 0;         // ALT* target on the frame the TCAS submode became ALT_ACQ (sample and hold)
+
+  // ALT soft mode
+  blocks::ConfirmNode speedOff4kt10s;    // |speed target − CAS| > 4 kt for 10 s
+  blocks::ConfirmNode speedOff10kt4s;    // |speed target − CAS| > 10 kt for 4 s
+  blocks::ConfirmNode softCondFor120s;   // engagement condition held for 2 min
+};
 
 /** Not-yet-rewritten FMGC signals this group needs (filled in src/external_vs_tcas.h). */
-struct VsTcasExternal {};
+struct VsTcasExternal {
+  bool altCaptureCond = false;  // tcas_alt_acq_cond: ALT* geometric capture condition (ALT group, captureCond)
+  bool altHoldCond = false;     // tcas_alt_hold_cond: |target − H| < 40 ft for 0.8 s (ALT group, withinAltHoldBand)
+  double speedTargetKt = 0;     // spd_target_kts: the speed target (selected or managed, kt)
+  bool machMode = false;        // mach_control_active: the speed target is a Mach number
+};
 
 }  // namespace fmgc::readable

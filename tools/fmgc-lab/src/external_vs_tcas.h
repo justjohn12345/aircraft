@@ -7,6 +7,11 @@
 
 #pragma once
 
-inline void fillVsTcasExternal(fmgc::readable::VsTcasExternal&, const fmgc_outputs& /*out*/,
+inline void fillVsTcasExternal(fmgc::readable::VsTcasExternal& e, const fmgc_outputs& out,
                                const FmgcComputer::D_Work_FmgcComputer_T& /*pre*/,
-                               const FmgcComputer::D_Work_FmgcComputer_T& /*post*/) {}
+                               const FmgcComputer::D_Work_FmgcComputer_T& /*post*/) {
+  e.altCaptureCond = out.ap_fd_logic.tcas_alt_acq_cond;
+  e.altHoldCond = out.ap_fd_logic.tcas_alt_hold_cond;
+  e.speedTargetKt = out.ap_fd_logic.spd_target_kts;
+  e.machMode = out.ap_fd_logic.mach_control_active;
+}
