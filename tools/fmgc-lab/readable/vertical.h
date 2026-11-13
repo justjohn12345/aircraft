@@ -47,7 +47,7 @@ enum class Signal : int {
   DesArmed,         // [2875] armed_modes.des_armed
   Des,              // [2961] longitudinal_modes.des_active
   OpClb,            // [3021] longitudinal_modes.op_clb_active
-  ReversionOpClb,   //        longitudinal_mode_reversion_op_clb (combinational)
+  ReversionOpClb,   // [3023] longitudinal_mode_reversion_op_clb (combinational)
   OpDes,            // [3067] longitudinal_modes.op_des_active
   ExpClb,           // [3107] longitudinal_modes.exp_clb_active
   ExpDes,           // [3147] longitudinal_modes.exp_des_active

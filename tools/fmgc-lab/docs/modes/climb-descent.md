@@ -20,6 +20,12 @@ Conventions:
 
 ---
 
+
+> Corrections found while rewriting this group (readable/vertical_climb_descent.cpp is exact against the generated
+> code): the engaged-mode reset lists hold 16 entries (15 longitudinal modes plus LAND), not "the other 15"; DES armed
+> differs from CLB armed in being also reset by FINAL DES and SRS GA (and CLB armed by CLB) — neither list contains
+> SRS TO; all 8 SR tables used here (incl. `_lw`, `_ao`, `_om`) are the default reset-wins table.
+
 ## Shared conditions
 
 These appear in several modes and are defined once here. Names in **bold** are used in the formulas.
