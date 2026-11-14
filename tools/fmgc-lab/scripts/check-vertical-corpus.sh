@@ -24,7 +24,7 @@ for path in "$corpus"/*.fdr; do
     "$bin" --free --fuzz $seed "$path" > "$out/$f.free-fuzz$seed.txt" 2>&1 &
     "$bin" --approach $seed --fuzz $seed "$path" > "$out/$f.approach$seed.txt" 2>&1 &
   done
-  while [ "$(jobs -r | wc -l)" -ge "$(nproc)" ]; do wait -n; done
+  while [ "$(jobs -r | wc -l)" -ge "${JOBS:-$(nproc)}" ]; do wait -n; done
 done
 wait
 # coverage: signals never true in any run
