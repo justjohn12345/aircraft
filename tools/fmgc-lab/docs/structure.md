@@ -113,3 +113,11 @@ at 5108–5109. After the vertical modes, 3335–3403 compute the FD auto diseng
 reversion pulse and the pitch/roll FD bars flashing. The landing capability (LAND 2/3 capability, inop, capacity;
 memories `pLand3FailOp/Pass`) is 3796–3863, outputs 4049–4054 (rewritten with the engagement, `engagement_land.cpp`). `rtb_fmgcOppPriority_tmp` is `!ap_own_engaged` up to 3372 (read at 1896, 2666–2670,
 3347–3348), then V/S || FPA.
+
+Corrections from the targets rewrite (`docs/modes/targets.md`, `readable/targets.cpp`): 3405–3434 HDG/TRK preset (bw);
+3436–3482 selected speed (cu, with `Delay_DSTATE_fe` = "first running frame", 1 at initialisation, 0 after every step);
+3483–3522 managed speed (hk); 3523–3536 SPD/MACH latch, whose memory is `Memory_PreviousInput_bo` (copied from the
+output `Delay_DSTATE_c` at 5115); 3562–3566 FCU Mach → CAS; 3567–3620 speed memos (VAPP `FmgcComputer_B.u_l`, not reset
+on restart; `vMemoGa`, `vMemoEo`); 3580–3598 manoeuvring speed floor; 3623–3648 SRS targets; 3650–3659 DES lower-margin
+latch (dh); 3660–3711 speed target selection: `rtb_Nosewheel_c` = V_c (`spd_target_kts`, unchanged until 4017) and
+`pfd_spd_target_kts`; 3713–3735 ALT soft (ak). `alt_sel_or_cstr` is not in this block (1636–1664).

@@ -67,8 +67,7 @@ constexpr double kLocTrackConfirmS = 10;
 // Roll FD bars
 constexpr double kRollBarsFlashS = 10;
 
-// HDG/TRK preset
-constexpr double kPresetMaxRadioHeightFt = 30;
+// HDG/TRK preset: readable/targets.cpp
 
 constexpr bool kLocBackCourseSelected = false;  // rtP_fmgc_ap_fd_logic_output_MATLABStruct.loc_bc_selection
 
@@ -430,24 +429,11 @@ bool VerticalModeLogic::updateLateral(Signal id, const Frame& f, Signals& s) {
     }
 
     case Signal::HdgTrkPreset: {
-      // A heading/track preset (FCU selected value, or the knob pulled) is kept when made in a guided mode or on the
-      // ground; it is cleared by HDG/TRK, NAV, the knob pushed, no AP/FD, or leaving those conditions.
-      const auto& fcu = f.in.bus_inputs.fcu_bus;
-      bool presetSelected =
-          isNormal(fcu.selected_hdg_deg) || isNormal(fcu.selected_trk_deg) || fcuWord2Bit(f, kFcuWord2HdgKnobPulled);
-      bool selectedPulse = l.presetSelectPulse.update(presetSelected, f.dt, true, false, kPulseS);
-      bool navArmedRecently = l.presetNavArmedRecent.update(s[Signal::NavArmed], f.dt, false, kPulseS);
-      bool guidedMode = s[Signal::LocCapture] || s[Signal::LocTrack] || s[Signal::Land] || s[Signal::Final] ||
-                        s[Signal::GaTrk] || s[Signal::RwyTrk];
-      bool presetPossible = navArmedRecently || guidedMode;
-      bool guidedOrLow = guidedMode || logic.on_ground ||
-                         (radioHeight(f) < kPresetMaxRadioHeightFt && !logic.dual_ra_failure);
-      bool set = selectedPulse && presetPossible && guidedOrLow;
-      bool knobPush = l.presetKnobPushPulse.update(fcuWord2Bit(f, kFcuWord2HdgKnobPushed), f.dt, true, false, kPulseS);
-      bool noApFdRecently = l.presetNoApFdRecent.update(!f.ext.anyApFdEngaged, f.dt, false, kPulseS);
-      bool reset = !guidedOrLow || s[Signal::HdgActive] || s[Signal::TrkActive] || s[Signal::Nav] || knobPush ||
-                   noApFdRecently;
-      s[id] = latch(set, reset, s[id]);
+      // HDG/TRK preset: readable/targets.cpp (the targets block evaluates it at this point of the step).
+      targets::PresetModes m{s[Signal::NavArmed], s[Signal::Nav],  s[Signal::LocCapture], s[Signal::LocTrack],
+                             s[Signal::Land],     s[Signal::Final], s[Signal::GaTrk],     s[Signal::RwyTrk],
+                             s[Signal::HdgActive], s[Signal::TrkActive]};
+      s[id] = targets::updateHdgTrkPreset(l.preset, f.dt, f.in, logic, m, f.ext.anyApFdEngaged, s[id]);
       return true;
     }
 
