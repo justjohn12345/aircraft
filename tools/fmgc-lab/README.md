@@ -134,3 +134,18 @@ synthetic AP/FD/A/THR episodes (`src/scenario_engagement.h`): pushbutton presses
 FD pushbuttons, opposite-FMGC patterns and unit 2, ground windows with engine starts and levers, A/THR presses around
 100 ft RA, common condition losses. The report lists, per output, mismatches, steps true and rises (generated), and
 the steps each intermediate condition was reached (readable, = generated in resync mode).
+
+## Phase 5d: readable targets block
+
+`readable/targets.{h,cpp}`: HDG/TRK preset, selected/managed speed, the SPD/MACH latch, the speed memos, the speed target
+for the laws and the A/THR (`spd_target_kts`), the PFD target and the ALT soft mode (spec: `docs/modes/targets.md`).
+The preset and ALT soft functions are shared with the vertical/lateral mode logic.
+
+```sh
+build/fmgc-check-targets-stock [--free] [--fuzz SEED] [--approach SEED] [--targets SEED] [--events] file.fdr
+JOBS=4 scripts/check-targets-corpus.sh [fuzz runs per file]
+```
+
+`--targets SEED` adds synthetic speed-mode episodes (`src/scenario_targets.h`); `--events` prints a timeline of the
+selected/managed/Mach changes with the FCU and FMS speeds. Every field (latches, memos, both speed targets) is compared
+exactly; the report lists per-field coverage and the named set/reset causes and target branches seen.

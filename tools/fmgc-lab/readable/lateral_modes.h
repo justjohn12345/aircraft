@@ -9,6 +9,7 @@
 
 #include "FmgcComputer_types.h"
 #include "blocks.h"
+#include "targets.h"
 
 namespace fmgc::readable {
 
@@ -73,11 +74,8 @@ struct LateralModesState {
   blocks::EdgeDetector rollBarsApFdEngage;  // first AP or FD engaged
   blocks::Monostable rollBarsFlash10s;      // 10 s of flashing
 
-  // HDG/TRK preset
-  blocks::Monostable presetSelectPulse;   // 0.72 s after an FCU heading/track preset appears or the knob is pulled
-  blocks::ConfirmNode presetNavArmedRecent;  // NAV armed within the last 0.72 s
-  blocks::Monostable presetKnobPushPulse; // 0.72 s after the HDG/TRK knob is pushed
-  blocks::ConfirmNode presetNoApFdRecent; // no AP/FD within the last 0.72 s
+  // HDG/TRK preset (logic shared with the targets block, readable/targets.cpp)
+  targets::HdgTrkPresetState preset;
 };
 
 /** Not-yet-rewritten FMGC signals this group needs (filled in src/external_lateral.h). */
