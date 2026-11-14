@@ -30,7 +30,8 @@
 //   - HDG/TRK preset windows on the ground or at a low radio height (< 30 ft) with NAV armed (HDG knob pull then push
 //     with no NAV capture), and the FCU heading/track appearing;
 // and long (150–260 s) ALT soft episodes: cruise phase, a Mach request, the managed speed held within 4 kt of the CAS,
-// then moved off by more than 4 or 10 kt, VMAX brought to CAS + 5, or an FCU word 1 bit 15 pulse.
+// then moved off by more than 4 or 10 kt (around the timer lengths), VMAX brought near CAS + 5, or an FCU word 1
+// bit 15 pulse; started mostly when the recording is in level flight above 10000 ft (ALT itself comes from the recording).
 // Physically inconsistent with the rest of the recording, which is fine: the generated model is the oracle.
 
 #pragma once
@@ -109,7 +110,7 @@ struct TargetsScenario {
   double pullAt = 0, pushAt = 0;
   // ALT soft
   double softOffAt = -1, softOffLen = 0, softVmaxAt = -1, softBit15At = -1;
-  float softOffset = 0, softOffKt = 0;
+  float softOffset = 0, softOffKt = 0, softVmaxOffset = 5;
 
   explicit TargetsScenario(uint64_t seed) : rng(seed) {}
   double u(double lo, double hi) { return std::uniform_real_distribution<double>(lo, hi)(rng); }
@@ -128,7 +129,10 @@ struct TargetsScenario {
 
   void startEpisode(const fmgc_inputs& in) {
     te = 0;
-    soft = p(0.12);
+    // ALT soft needs ALT from the recording: mostly started in level flight above 10000 ft
+    bool level = std::fabs(in.bus_inputs.adr_own_bus.vertical_speed_ft_min.Data) < 300 &&
+                 in.bus_inputs.adr_own_bus.altitude_standard_ft.Data > 10000;
+    soft = p(level ? 0.5 : 0.05);
     epLen = soft ? u(150, 260) : u(10, 150);
     float cas = in.bus_inputs.adr_own_bus.airspeed_computed_kn.Data;
 
@@ -237,9 +241,15 @@ struct TargetsScenario {
       softOffset = static_cast<float>(p(0.3) ? (p(0.5) ? 4.0 : -4.0) : u(-3, 3));
       int way = static_cast<int>(rng() % 5);
       softOffAt = way == 0 || way == 1 ? u(125, epLen - 15) : -1;
-      softOffKt = way == 0 ? static_cast<float>(p(0.5) ? 6 : -6) : static_cast<float>(p(0.5) ? 12 : -12);
-      softOffLen = way == 0 ? u(5, 14) : u(2, 6);
+      // off by just over 4 kt (the 10 s timer) or around 10 kt (the 4 s timer), for about the timer's length
+      static const float small[]{4.5F, 5, 6};
+      static const float large[]{9, 10, 10.5F, 12, 14};
+      softOffKt = way == 0 ? small[rng() % 3] : large[rng() % 5];
+      if (p(0.5)) softOffKt = -softOffKt;
+      softOffLen = way == 0 ? u(7, 13) : u(2, 6);
       softVmaxAt = way == 2 ? u(125, epLen - 5) : -1;
+      static const float vmaxOffsets[]{3.5F, 4, 4.5F, 5, 5.5F, 6, 7};
+      softVmaxOffset = vmaxOffsets[rng() % 7];
       softBit15At = way == 3 ? u(125, epLen - 2) : -1;
     }
     (void)cas;
@@ -515,7 +525,7 @@ struct TargetsScenario {
       float off = window(softOffAt, softOffLen) ? softOffKt : softOffset;
       fms.v_managed_kts = cas + off;
       fms.show_speed_margins = false;
-      float vmaxNow = softVmaxAt >= 0 && te >= softVmaxAt ? (p(0.5) ? cas + 5 : cas + 4) : cas + 60;
+      float vmaxNow = softVmaxAt >= 0 && te >= softVmaxAt ? cas + softVmaxOffset : cas + 60;
       for (auto* fac : {&b.fac_own_bus, &b.fac_opp_bus}) normal(fac->v_max_kn, vmaxNow);
       if (window(softBit15At, 0.3)) setBit(b.fcu_bus.fcu_discrete_word_1, 15, true);
     }

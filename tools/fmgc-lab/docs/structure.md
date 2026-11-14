@@ -102,3 +102,10 @@ runway course `rwy_hdg_memo` = `FmgcComputer_B.u_lyjj`, IR roll and the outer lo
 LOC (lq). The roll FD bars flashing monostable is at 3392–3404, the HDG/TRK preset (bw) at 3405–3434,
 `any_lateral_mode_engaged` at 3736. `lateral_mode_reset` and `longitudinal_mode_reset` are the same signal (1553).
 `loc_bc_selection` is a constant (false). FCU word 2 bits: 11 HDG/TRK knob pushed, 12 pulled, 13 LOC pushed.
+Corrections from the targets rewrite (`docs/modes/targets.md`, `readable/targets.cpp`): 3405–3434 HDG/TRK preset (bw);
+3436–3482 selected speed (cu, with `Delay_DSTATE_fe` = "first running frame", 1 at initialisation, 0 after every step);
+3483–3522 managed speed (hk); 3523–3536 SPD/MACH latch, whose memory is `Memory_PreviousInput_bo` (copied from the
+output `Delay_DSTATE_c` at 5115); 3562–3566 FCU Mach → CAS; 3567–3620 speed memos (VAPP `FmgcComputer_B.u_l`, not reset
+on restart; `vMemoGa`, `vMemoEo`); 3580–3598 manoeuvring speed floor; 3623–3648 SRS targets; 3650–3659 DES lower-margin
+latch (dh); 3660–3711 speed target selection: `rtb_Nosewheel_c` = V_c (`spd_target_kts`, unchanged until 4017) and
+`pfd_spd_target_kts`; 3713–3735 ALT soft (ak). `alt_sel_or_cstr` is not in this block (1636–1664).

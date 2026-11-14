@@ -120,3 +120,18 @@ FmgcComputer's calls to its outer loops are captured with all inputs and outputs
 statements inserted before given lines (`src/probes/*.txt`, `BEFORE <line> <name> <expr>`) report intermediate values.
 `law_selection.txt` taps every law's FD/AP command just before the two law switches, so each law is compared every
 frame whichever law is active; add your own probe file to tap a law's internals while debugging. Exact comparison.
+
+## Phase 5c: readable targets block
+
+`readable/targets.{h,cpp}`: HDG/TRK preset, selected/managed speed, the SPD/MACH latch, the speed memos, the speed target
+for the laws and the A/THR (`spd_target_kts`), the PFD target and the ALT soft mode (spec: `docs/modes/targets.md`).
+The preset and ALT soft functions are shared with the vertical/lateral mode logic.
+
+```sh
+build/fmgc-check-targets-stock [--free] [--fuzz SEED] [--approach SEED] [--targets SEED] [--events] file.fdr
+JOBS=4 scripts/check-targets-corpus.sh [fuzz runs per file]
+```
+
+`--targets SEED` adds synthetic speed-mode episodes (`src/scenario_targets.h`); `--events` prints a timeline of the
+selected/managed/Mach changes with the FCU and FMS speeds. Every field (latches, memos, both speed targets) is compared
+exactly; the report lists per-field coverage and the named set/reset causes and target branches seen.
