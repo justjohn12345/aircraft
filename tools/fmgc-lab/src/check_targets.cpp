@@ -11,7 +11,8 @@
 //   --fuzz SEED, --approach SEED, --targets SEED: input perturbations (src/input_fuzzer.h, scenario_approach.h,
 //     scenario_targets.h), combinable;
 //   --events: also prints a timeline of the speed-mode events (generated values): selected/managed/Mach changes, SPD
-//     knob and SPD/MACH pb edges, FMS Mach/speed requests and presets, with the FCU and FMS speeds.
+//     knob and SPD/MACH pb edges, FMS Mach/speed requests and presets, with the FCU and FMS speeds (and a sample line
+//     every 60 s).
 //
 // Inputs are this frame's generated out.logic and out.ap_fd_logic mode flags (computed before the block, not changed
 // by it) and the previous frame's ap_fd_logic (Delay_DSTATE). Every field is compared exactly (doubles bit for bit).
@@ -64,7 +65,8 @@ struct Stats {
 }  // namespace
 
 int main(int argc, char** argv) {
-  bool freeRunning = false, events = false;
+  bool freeRunning = false;
+  int events = 0;
   long fuzzSeed = -1, approachSeed = -1, targetsSeed = -1;
   std::string path;
   for (int i = 1; i < argc; i++) {
@@ -72,7 +74,9 @@ int main(int argc, char** argv) {
     if (a == "--free") {
       freeRunning = true;
     } else if (a == "--events") {
-      events = true;
+      events = 1;
+    } else if (a == "--events-dense") {
+      events = 2;
     } else if (a == "--fuzz" && i + 1 < argc) {
       fuzzSeed = std::atol(argv[++i]);
     } else if (a == "--approach" && i + 1 < argc) {
@@ -126,6 +130,7 @@ int main(int argc, char** argv) {
   base_fmgc_ap_fd_logic_outputs prevOut{};
   uint32_t prevWord1 = 0;
   bool prevMachReq = false, prevSpdReq = false, prevPreset = false;
+  double nextSample = 0;
 
   replayer.beforeStep = [&]() {
     if (approach) {
@@ -221,12 +226,20 @@ int main(int argc, char** argv) {
       if (fms.fms_mach_mode_activate && !prevMachReq) ev += " fms-mach-req";
       if (fms.fms_spd_mode_activate && !prevSpdReq) ev += " fms-spd-req";
       if (fms.preset_spd_mach_activate && !prevPreset) ev += " preset";
+      if (t >= nextSample) {
+        ev += " (sample)";
+        if (scenario && scenario->soft) ev += " [ALT soft episode, t+" + std::to_string(static_cast<int>(scenario->te)) + "]";
+        nextSample = t + (events > 1 ? 5 : 60);
+      }
       if (!ev.empty()) {
         std::printf("event t=%10.2f%s | fcu spd %.1f (ssm %u) mach %.3f (ssm %u) | v_managed %.2f phase %d | V_c %.2f "
-                    "pfd %.2f | CAS %.2f\n",
+                    "pfd %.2f | CAS %.2f mach %.3f alt %.0f fcu alt %.0f | ALT* %d ALT %d alt armed %d ap/fd %d athr %d\n",
                     t, ev.c_str(), fcu.selected_spd_kts.Data, fcu.selected_spd_kts.SSM, fcu.selected_mach.Data,
                     fcu.selected_mach.SSM, fms.v_managed_kts, static_cast<int>(fms.fms_flight_phase), a.spd_target_kts,
-                    a.pfd_spd_target_kts, out.logic.adr_computation_data.airspeed_computed_kn.Data);
+                    a.pfd_spd_target_kts, out.logic.adr_computation_data.airspeed_computed_kn.Data,
+                    out.logic.adr_computation_data.mach.Data, out.logic.altitude_indicated_ft.Data,
+                    fcu.selected_alt_ft.Data, a.longitudinal_modes.alt_acq_active, a.longitudinal_modes.alt_hold_active,
+                    a.armed_modes.alt_acq_armed, a.any_ap_fd_engaged, out.logic.athr_own_engaged);
       }
       prevOut = a;
       prevWord1 = w1;

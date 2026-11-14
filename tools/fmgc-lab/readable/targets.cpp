@@ -287,14 +287,14 @@ void Targets::update(Field id, const Inputs& f, Values& v, Trace& trace) {
       // a preselected speed, except in SRS takeoff above the FCU altitude
       bool preset = fms.preset_spd_mach_activate && (!srsTakeoff || altitude <= fcuAltitude);
       bool managedLost = st_.managedLostManual.update(fms.v_managed_kts == kNoSpeed, true);
-      bool speedOnFmsAllowedLost = !srsTakeoff && !srsGoAround && !lm.gs_capt_active && !lm.gs_trk_active &&
-                                   !lat.land_active;  // FM speed loss keeps managed speed in SRS, G/S, LAND
+      bool fmSpeedLossReverts = !srsTakeoff && !srsGoAround && !lm.gs_capt_active && !lm.gs_trk_active &&
+                                   !lat.land_active;  // SRS, G/S and LAND keep managed speed when the FMS speed is lost
       bool tcasEngaged = st_.tcasEngaged.update(lm.tcas_active, true);
 
       bool powerUpInFlight = f.firstFrame && !onGround;
-      bool noManagedAtLiftoff = fms.v_managed_kts == kNoSpeed && fiveSecondsAfterLiftoff && speedOnFmsAllowedLost;
+      bool noManagedAtLiftoff = fms.v_managed_kts == kNoSpeed && fiveSecondsAfterLiftoff && fmSpeedLossReverts;
       bool noApFd = !anyApFd && fms.fms_flight_phase != fmgc_flight_phase::Approach;
-      bool managedLostInFlight = managedLost && !onGround && speedOnFmsAllowedLost;
+      bool managedLostInFlight = managedLost && !onGround && fmSpeedLossReverts;
       bool oppManual = bit(oppWord5, kOppWord5ManualSpeed) != 0 && oppSync;
       bool set = oppManual || (!oppSync && (powerUpInFlight || noManagedAtLiftoff || noApFd || knobPulled || preset ||
                                             managedLostInFlight || tcasEngaged));
