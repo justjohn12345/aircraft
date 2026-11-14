@@ -250,6 +250,16 @@ int main(int argc, char** argv) {
       cover("land_ap_engaged", ap.lateral_modes.land_active && lg.ap_own_engaged);
       cover("on_ground_engaged", lg.on_ground && engaged);
       cover("goaround_phase", out.data.fms_inputs.fms_flight_phase == fmgc_flight_phase::Goaround);
+      const auto& lm = ap.longitudinal_modes;
+      int des = lm.des_active + lm.op_des_active + lm.exp_des_active + lm.final_des_active;
+      cover("des_only", des == 1 && lm.des_active);
+      cover("op_des_only", des == 1 && lm.op_des_active);
+      cover("exp_des_only", des == 1 && lm.exp_des_active);
+      cover("final_des", lm.final_des_active);
+      cover("ra_le_40_land_ap", ap.lateral_modes.land_active && lg.ap_own_engaged &&
+                                    lg.ra_computation_data.radio_height_ft.Data <= 40.0F);
+      cover("law_none_on_ground_engaged", ap.active_longitudinal_law == vertical_law::NONE && lg.on_ground && engaged);
+      cover("retard_on_ground", gen.retard_mode_active && lg.on_ground);
     }
     fmaMessageSteps[static_cast<int>(gen.fma_message)]++;
     lastReadable = r.out;
