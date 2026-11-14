@@ -8,6 +8,7 @@
 #pragma once
 
 #include "blocks.h"
+#include "targets.h"
 
 namespace fmgc::readable {
 
@@ -29,10 +30,8 @@ struct VsTcasState {
   blocks::ConfirmNode tcasCondRecent;    // TCAS set condition true within the last 0.72 s
   double tcasAltAcqTargetFt = 0;         // ALT* target on the frame the TCAS submode became ALT_ACQ (sample and hold)
 
-  // ALT soft mode
-  blocks::ConfirmNode speedOff4kt10s;    // |speed target − CAS| > 4 kt for 10 s
-  blocks::ConfirmNode speedOff10kt4s;    // |speed target − CAS| > 10 kt for 4 s
-  blocks::ConfirmNode softCondFor120s;   // engagement condition held for 2 min
+  // ALT soft mode (logic shared with the targets block, readable/targets.cpp)
+  targets::AltSoftState altSoft;
 };
 
 /** Not-yet-rewritten FMGC signals this group needs (filled in src/external_vs_tcas.h). */

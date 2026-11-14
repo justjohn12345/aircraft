@@ -71,7 +71,7 @@ foreach(variant ${MODEL_VARIANTS})
 
   add_executable(fmgc-check-vertical-${name} src/check_vertical.cpp readable/vertical.cpp readable/vertical_alt.cpp
     readable/vertical_vs_tcas.cpp readable/vertical_climb_descent.cpp readable/vertical_approach.cpp readable/lateral_modes.cpp
-    ${gen_dir}/fields.gen.h)
+    readable/targets.cpp ${gen_dir}/fields.gen.h)
   target_include_directories(fmgc-check-vertical-${name} PRIVATE ${gen_dir} ${WASM_SRC} src readable)
   target_compile_options(fmgc-check-vertical-${name} PRIVATE -O2 -ffp-contract=off)
   target_link_libraries(fmgc-check-vertical-${name} PRIVATE fmgc_model_${name} ZLIB::ZLIB -static)
@@ -85,6 +85,17 @@ foreach(variant ${MODEL_VARIANTS})
   target_include_directories(fmgc-blocks-test-${name} PRIVATE ${gen_dir} ${WASM_SRC} readable)
   target_compile_options(fmgc-blocks-test-${name} PRIVATE -O2 -ffp-contract=off)
   target_link_libraries(fmgc-blocks-test-${name} PRIVATE fmgc_model_${name} -static)
+endforeach()
+
+# Targets block check (Phase 5c): HDG/TRK preset, selected/managed speed, Mach, speed targets, ALT soft mode.
+foreach(variant ${MODEL_VARIANTS})
+  string(REPLACE "=" ";" parts ${variant})
+  list(GET parts 0 name)
+  set(gen_dir ${CMAKE_CURRENT_BINARY_DIR}/gen-${name})
+  add_executable(fmgc-check-targets-${name} src/check_targets.cpp readable/targets.cpp ${gen_dir}/fields.gen.h)
+  target_include_directories(fmgc-check-targets-${name} PRIVATE ${gen_dir} ${WASM_SRC} src readable)
+  target_compile_options(fmgc-check-targets-${name} PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(fmgc-check-targets-${name} PRIVATE fmgc_model_${name} ZLIB::ZLIB -static)
 endforeach()
 
 # Control-law checks (Phase 3): an instrumented copy of the stock model (outer-loop call hooks and probes), never the

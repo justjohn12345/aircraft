@@ -14,20 +14,11 @@ namespace fmgc::readable {
 namespace {
 
 using blocks::a429::bit;
-using blocks::a429::rawValue;
-using blocks::a429::valueOr;
 
 constexpr double kAltTargetChangeFt = 250;        // ALT* (or TCAS ALT_ACQ) target moved this far: abandon the capture
 constexpr double kAirborneConfirmS = 5;           // V/S engages by default 5 s after liftoff
 constexpr double kOtherModeTakeoverDelayS = 0.72; // another mode replaces V/S-FPA or TCAS only after this
-constexpr double kSoftModeSpeedBandKt = 4;        // ALT soft mode: speed within 4 kt of the target ...
-constexpr double kSoftModeEngageS = 120;          // ... for 2 min engages it
-constexpr double kSoftModeSpeedOffS = 10;         // speed off by more than 4 kt for 10 s drops it
-constexpr double kSoftModeLargeSpeedOffKt = 10;   // speed off by more than 10 kt ...
-constexpr double kSoftModeLargeSpeedOffS = 4;     // ... for 4 s drops it
-constexpr double kSoftModeVmaxMarginKt = 5;       // CAS above VMAX − 5 kt drops it
 
-constexpr int kFcuWord1SpdMachChanged = 15;  // SPD/MACH value changed
 constexpr int kFcuWord1VsKnobPushed = 16;    // V/S-FPA knob pushed (level off)
 constexpr int kFcuWord1VsKnobPulled = 19;    // V/S-FPA knob pulled
 constexpr int kFcuWord1ApprPushed = 23;
@@ -188,24 +179,11 @@ bool VerticalModeLogic::updateVsTcas(Signal id, const Frame& f, Signals& s) {
       return true;
     }
 
-    case Signal::AltSoft: {
-      // After 2 min of stable Mach cruise in ALT with A/THR, the soft altitude mode engages.
-      bool cond = s[Signal::AltHold] && f.in.fms_inputs.fms_flight_phase == fmgc_flight_phase::Cruise &&
-                  f.ext.vsTcas.machMode && f.ext.logic->athr_own_engaged;
-      float cas = rawValue(f.ext.logic->adr_computation_data.airspeed_computed_kn);
-      double speedError = std::abs(f.ext.vsTcas.speedTargetKt - cas);
-      bool speedOff = speedError > kSoftModeSpeedBandKt;
-      bool speedOff10s = st.speedOff4kt10s.update(speedOff, f.dt, true, kSoftModeSpeedOffS);
-      bool largeSpeedOff4s =
-          st.speedOff10kt4s.update(speedError > kSoftModeLargeSpeedOffKt, f.dt, true, kSoftModeLargeSpeedOffS);
-      float vmax = valueOr(f.ext.logic->chosen_fac_bus.v_max_kn, 0.0F);
-      bool reset = !cond || speedOff10s || largeSpeedOff4s ||
-                   static_cast<double>(cas) > static_cast<double>(vmax) - kSoftModeVmaxMarginKt ||
-                   fcuWord1Bit(f, kFcuWord1SpdMachChanged);
-      bool set = st.softCondFor120s.update(cond && !speedOff && !reset, f.dt, true, kSoftModeEngageS);
-      s[id] = latch(set, reset, s[id]);
+    case Signal::AltSoft:
+      // ALT soft mode: readable/targets.cpp (the targets block evaluates it at this point of the step).
+      s[id] = targets::updateAltSoft(st.altSoft, f.dt, f.in, *f.ext.logic, s[Signal::AltHold], f.ext.vsTcas.machMode,
+                                     f.ext.vsTcas.speedTargetKt, s[id]);
       return true;
-    }
 
     case Signal::VsActive:
       s[id] = fcuWord1Bit(f, kFcuWord1HdgVsSelected) && s[Signal::VsFpa];
