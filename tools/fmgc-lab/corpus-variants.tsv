@@ -6,3 +6,4 @@
 # 2026-11-13 evening: stock master daee2f1f2 installed for ILS coverage flights -> recordings from then are "stock" (default)
 # 2026-11-13 ~17:35: personal build test/combined f843a4bf6 reinstalled -> recordings from then are "combined"
 2026-11-13-22	combined
+# 2026-11-14 ~09:05: stock master daee2f1f2 installed again (SPD/MACH test flight) -> recordings from then are "stock" (default) until the personal build is reinstalled
