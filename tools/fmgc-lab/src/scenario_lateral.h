@@ -15,7 +15,9 @@
 //   - FMS: DIR TO, NAV capture condition, lateral flight plan valid, flight phase;
 //   - AP/FD: everything disengaged for a while (then re-engaged by the recording);
 //   - this FMGC as unit 2 with AP 1 engaged, so it copies random opposite-FMGC lateral mode bits;
-//   - wheel spin-up and BSCU validity below 50 ft RA.
+//   - wheel spin-up and BSCU validity below 80 ft RA;
+//   - on the ground (half the episodes starting below 5 ft RA): AP/FD off, then a TOGA edge with V2 and flaps 1 (SRS
+//     takeoff and RWY), runway course within 26° of the heading (sometimes ±360° unwrapped), localizer lost later.
 // Physically inconsistent with the rest of the recording, which is fine: the generated model is the oracle.
 
 #pragma once
@@ -36,6 +38,10 @@ struct LateralScenario {
   int phase = 0;
   uint32_t oppW2 = 0, oppW3 = 0;
   double nextFcuIn = 0, fcuLeft = 0, nextFmsIn = 0, toggleIn = 0;
+  bool takeoff = false;
+  double togaAt = 0, locInvalidAt = -1;
+  bool snapHeading = false;
+  double hdgInt = 0;
   int fcuBit = 0;
   bool navCapture = true, fpValid = true, dirTo = false, hdgSelValid = true, trkSelValid = false, hdgVs = true;
   bool bscuValid = true, wheelSpin = false;
@@ -47,6 +53,8 @@ struct LateralScenario {
   void startEpisode(const fmgc_inputs& in) {
     te = 0;
     epLen = u(10, 90);
+    takeoff = in.bus_inputs.ra_own_bus.radio_height_ft.Data < 5 && p(0.5);
+    locInvalidAt = -1;
     ils = p(0.6);
     locInvalid = p(0.1);
     backbeam = p(0.05);
@@ -87,6 +95,46 @@ struct LateralScenario {
     nextFcuIn = u(0, 10);
     nextFmsIn = u(0, 10);
     toggleIn = u(0, 10);
+    if (takeoff) {
+      // On the ground: AP/FD off (resets the modes), then a TOGA thrust lever edge (SRS takeoff, RWY) with a runway
+      // course near the heading (sometimes off by about 360°, unwrapped) and a small localizer deviation.
+      epLen = u(12, 40);
+      ils = true;
+      raOn = false;
+      rollOn = false;
+      oppMaster = p(0.1);
+      noApFd = true;
+      double off = u(-26, 26);
+      course = hdg + (p(0.15) ? (p(0.5) ? 360.0 : -360.0) + off : off);
+      L0 = u(-0.6, 0.6);
+      tauL = u(5, 100);
+      w = 0;
+      locInvalid = p(0.1);
+      togaAt = u(3, 6);
+      locInvalidAt = p(0.25) ? u(togaAt + 0.5, epLen) : -1;
+    }
+    // Exact thresholds (integer-valued ones are representable, so `<` vs `<=` can be told apart): an integer heading
+    // with the course at an exact offset, a constant deviation of exactly 10° or 0°, a roll of exactly ±5°, a radio
+    // height exactly at a threshold.
+    snapHeading = p(0.3);
+    if (snapHeading) {
+      static const double offsets[] = {0, 15, 20, 25, 115, 114, 116, -15, -20, -25, -115, 360, -340};
+      hdgInt = std::round(hdg);
+      course = hdgInt + offsets[static_cast<int>(u(0, 13)) % 13];
+      if (p(0.3)) {
+        L0 = p(0.5) ? 10.0 : (p(0.5) ? -10.0 : 0.0);
+        tauL = 1e9;
+        w = 0;
+      }
+    }
+    if (p(0.2)) {
+      roll0 = p(0.5) ? 5.0 : -5.0;
+      rollW = 0;
+    }
+    if (p(0.4)) {
+      ra0 = thresholds[static_cast<int>(u(0, 4)) % 4];
+      raMode = u(0, 2);
+    }
   }
 
   void apply(fmgc_inputs& in, double dt) {
@@ -123,6 +171,11 @@ struct LateralScenario {
       if (raMode >= 3) ra = std::fmax(0.0, u(0, 1) < 0.5 ? ra0 : ra0 + 10 * std::sin(te));
       word(b.ra_own_bus.radio_height_ft, static_cast<float>(ra));
       word(b.ra_opp_bus.radio_height_ft, static_cast<float>(ra));
+    }
+    if (snapHeading && ils) {
+      for (auto* ir : {&b.ir_own_bus, &b.ir_opp_bus, &b.ir_3_bus}) {
+        ir->heading_magnetic_deg.Data = static_cast<float>(hdgInt);
+      }
     }
     if (rollOn) {
       float roll = static_cast<float>(roll0 * std::cos(rollW * te));
@@ -177,7 +230,19 @@ struct LateralScenario {
       in.fms_inputs.direct_to_nav_engage = dirTo;
       in.fms_inputs.fms_flight_phase = static_cast<fmgc_flight_phase>(phase);
     }
-    if (noApFd && te < 8) {
+    if (takeoff) {
+      if (te >= togaAt && te < togaAt + 3) {
+        word(b.fadec_own_bus.selected_tla_deg, 45.0F);
+        word(b.fadec_opp_bus.selected_tla_deg, 45.0F);
+      }
+      if (in.fms_inputs.v_2_kts <= 0) in.fms_inputs.v_2_kts = 140;
+      for (auto* fac : {&b.fac_own_bus, &b.fac_opp_bus}) setBit(fac->discrete_word_5, 11);  // flap handle 1
+      if (locInvalidAt >= 0 && te >= locInvalidAt) {
+        b.ils_own_bus.localizer_deviation_deg.SSM = 0;
+        b.ils_opp_bus.localizer_deviation_deg.SSM = 0;
+      }
+    }
+    if (noApFd && te < (takeoff ? 2 : 8)) {
       setBit(b.fcu_bus.fcu_discrete_word_2, 26);
       setBit(b.fcu_bus.fcu_discrete_word_2, 27);
       in.discrete_inputs.fd_opp_engaged = false;
@@ -192,7 +257,7 @@ struct LateralScenario {
       b.fmgc_opp_bus.discrete_word_3.SSM = 3;
       b.fmgc_opp_bus.discrete_word_3.Data = static_cast<float>(oppW3);
     }
-    if (wheels && b.ra_own_bus.radio_height_ft.Data < 60) {
+    if (wheels && b.ra_own_bus.radio_height_ft.Data < 80) {
       in.discrete_inputs.bscu_own_valid = bscuValid;
       in.discrete_inputs.bscu_opp_valid = bscuValid && p(0.5);
       in.discrete_inputs.left_wheel_spd_abv_70_kts = wheelSpin;
