@@ -255,6 +255,36 @@ Stock behaviour is kept in the rewrite; nothing below is fixed.
 16. **Equipment inputs that are constants**: FWC, PFD and BSCU validity are wired `true` by `FlyByWireInterface`, so
     LAND 3 FAIL OP in the sim depends on the split power supply, ELACs, RAs, ILS, ADRs, IRs and FAC rudder only.
 
-## Verification
+## Verification (2026-11-14)
 
-See the end of this file (results of `scripts/check-engagement-corpus.sh` and the mutation test).
+`JOBS=4 scripts/check-engagement-corpus.sh 3`: 22 recordings × (resync, free, and 3 × fuzz, free+fuzz, engagement,
+free engagement+fuzz, engagement+approach, free engagement+approach+fuzz, engagement+lateral+approach, free
+engagement+athr) = 572 runs, 77.3 M checked steps (29.7 M free-running), 0 mismatches on all 25 outputs.
+
+Coverage: the recordings alone never set `fd_auto_disengage`, never give `fmgc_opp_priority` / `fmgc_opp_mode_sync`
+(FMGC 1 is always master, only frame 0), never press the AP pushbutton outside the envelope, never engage two APs or
+use FMGC 2. With `--engagement` every output and every intermediate condition is reached; the thinnest (rises over all
+572 runs) are `vs_target_not_held` 281, LAND 3 FAIL OP capability 306, LAND 3 FAIL PASSIVE 518, and the conditions
+A/THR engagement by TCAS (160 steps), FMGC 2 LAND/GA end with dual AP (521), opposite AP engagement reset (545),
+levers to IDLE disconnect (716).
+
+## Mutation test (2026-11-14)
+
+Throwaway generator over `engagement.cpp` and `engagement_land.cpp` (`&&`/`||` swaps, dropped `!`, comparison
+strictness and direction, constants ×1.25 / ×0.8 / ±1 for bit numbers, block flags (rising edge, retriggerable),
+`?:` swaps, stuck-at true/false on every named boolean), each mutant run over the corpus with the engagement, fuzzer,
+approach, lateral and A/THR scenarios until the first mismatch.
+
+- `engagement.cpp`: 443 mutants, 437 compile, 6 only touch coverage counters (excluded); 424 of 431 killed (98.4 %).
+  Survivors: 4 **equivalent** (lever angle ≥ 36.7° vs > 36.7° and < 2.6° vs ≤ 2.6°: a float lever angle can never
+  equal the double constant); 2 **exact equalities** (radio height exactly 700.0 ft in G/S with the FM lost, heading
+  deviation exactly 20.0° in ROLL OUT); 1 **needs a scenario**: the ROLL OUT off-course monostable made retriggerable
+  (needs the deviation to cross 20° twice within 3 s during ROLL OUT; the scenario does this but ROLL OUT with an
+  off-course heading is rare).
+- `engagement_land.cpp`: 99 mutants, 97 killed. Survivors, both **need a scenario**: the freeze height 100 → 80 ft and
+  the freeze condition `ownApLand || oppApLand` → `&&` (a LAND 3 capability present just before an AP loss or a
+  failure between 80 and 100 ft, or the own AP lost below 100 ft with the opposite AP still in LAND).
+- Killed after adding targeted scenario episodes: FM lost in G/S around 700 ft, the opposite lever alone at TOGA on the
+  ground, IAS exactly VLS + 3 / VMAX − 3 and the IR V/S at the FCU target ± 50 fpm, dual AP in LAND with failures
+  around 100 ft, random opposite LAND capacity bits. The AP engaged set `apPb && request` → `apPb || request`, first
+  thought equivalent, is killed (free-running, engagement scenario with the fuzzer).
