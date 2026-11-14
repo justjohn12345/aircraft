@@ -59,10 +59,48 @@ struct ModesState {
   bool placeholder = false;
 };
 
-/** N1-stage state: filters, integrator, delays. */
+/**
+ * N1-stage state: filters, integrator, delays. The defaults are the generated first-running-frame initialisation
+ * (filters re-prime on their first input, delays 0, integrator loaded from the actual N1 on the first frame).
+ * Generated counterparts in brackets (D_Work_FmgcComputer_T).
+ */
 struct N1State {
-  // filled in by the N1 rewrite
-  bool placeholder = false;
+  /** Washout (high pass) in float arithmetic: the generated FmgcComputer inlines this float variant once. */
+  struct FloatWashoutFilter {
+    float pY = 0, pU = 0;
+    bool primed = false;
+
+    void reset() { primed = false; }
+
+    float update(float u, double c1, double dt) {
+      if (!primed) {
+        pU = u;
+        pY = u;
+        primed = true;
+      }
+      double denom = dt * c1 + 2.0;
+      double ca = 2.0 / denom;
+      float y = static_cast<float>((2.0 - dt * c1) / denom) * pY + (u * static_cast<float>(ca) - pU * static_cast<float>(ca));
+      pY = y;
+      pU = u;
+      return y;
+    }
+  };
+
+  // SPEED/MACH controller: acceleration estimate and predicted speed error
+  blocks::WashoutFilter groundSpeedRate;        // d(ground speed)/dt, 0.5 s lag [pY_k, pU_l]
+  blocks::LeadLagFilter inertialAccelHighPass;  // attitude-corrected inertial acceleration, 0.2 s high pass [sf_LeadLagFilter]
+  blocks::LeadLagFilter airspeedWashout;        // IAS through 5s/(5s+1) = 5 s x lagged IAS rate [sf_LeadLagFilter_b]
+  double lastPredictedSpeedErrorKn = 0;         // discrete derivative memory [Delay_DSTATE_i]
+  blocks::LagFilter<double> errorRateLag;       // predicted speed error rate, 0.1 s lag [pY_e, pU]
+  // SPEED/MACH controller: load factor feedback
+  blocks::LagFilter<float> normalAccelLag;      // body normal acceleration (g), 1/3 s lag [sf_LagFilter_g]
+  FloatWashoutFilter loadFactorWashout;         // 10 x load factor increment, 0.1 s washout [pY_h, pU_p]
+  // ALT soft mode gain fade (0 -> 1 in 10 s, 1 -> 0 in 0.5 s) [pY]
+  blocks::SwitchBlend altSoftBlend;
+  // N1 command integrator
+  double n1CommandPercent = 0;   // limited integrator output of the previous frame [Delay_DSTATE_l = Delay_DSTATE_f]
+  bool loadIntegrator = true;    // re-initialise from the actual N1 this frame (first frame) [icLoad]
 };
 
 class Autothrust {
