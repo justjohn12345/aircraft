@@ -16,7 +16,15 @@
 //   - A/THR pushbutton presses and instinctive disconnects;
 //   - FAC VMAX around IAS + 20 kt (the climbing-RA LVR CLB condition);
 //   - the thrust reduction altitude around the current altitude, sometimes in the go-around phase;
-//   - the opposite FMGC in control (unit 2 with the opposite AP/FD/A/THR engaged) with its THR/SPEED/RETARD ATS bits.
+//   - the opposite FMGC in control (unit 2 with the opposite AP/FD/A/THR engaged) with its THR/SPEED/RETARD ATS bits;
+// and some targeted combinations that random episodes almost never line up:
+//   - TCAS lever script: levers in CL at the RA, one lever retarded (to 24° exactly, just below, or IDLE) 5–8 s later
+//     and back to CL, with alpha floor starting on the RA frame or after the lever moves (the TCAS alpha floor latch);
+//   - alpha floor held while the A/THR is disconnected and re-engaged (no new rising edge);
+//   - IAS exactly at VMAX - 20 kt (all ADRs at the same IAS), VMAX or IAS words not normal;
+//   - radio height (from the approach scenario) held at exactly 40 ft, or not normal below 300 ft;
+//   - touchdown when the radio height reaches 0 (FAC on-ground bits) and AP/FD disconnection on the ground, and ground
+//     windows with A/THR presses and no AP/FD.
 // Physically inconsistent with the rest of the recording, which is fine: the generated model is the oracle.
 
 #pragma once
@@ -28,7 +36,7 @@
 #include "FmgcComputer_types.h"
 
 struct AthrScenario {
-  enum class Levers { Recorded, Same, Asymmetric, Independent, Sweep };
+  enum class Levers { Recorded, Same, Asymmetric, Independent, Sweep, TcasScript };
 
   std::mt19937_64 rng;
   double te = 1e9, epLen = 0;
@@ -59,6 +67,11 @@ struct AthrScenario {
   double thrRedFt = 0;
 
   bool oppControl = false;
+
+  float tcasStartAngleOpp = 25, tcasRetardAngle = 24;
+  double tcasRetardAt = -1, tcasBackAt = -1;
+  bool adrNcd = false, vmaxNcd = false, raExact = false, raNcd = false, touchdown = false;
+  double touchdownAt = -1, apFdOffDelay = 0, groundStart = -1, groundLen = 0;
   uint32_t oppAts = 0;
   double nextOppChange = 0;
 
@@ -158,6 +171,41 @@ struct AthrScenario {
     oppControl = chance(0.12);
     oppAts = 0;
     nextOppChange = 0;
+
+    // targeted combinations
+    if (tcas && chance(0.6)) {
+      levers = Levers::TcasScript;
+      ssmOwn = ssmOpp = 3;
+      tcasStartAngleOpp = chance(0.6) ? 25.0F : 20.0F;
+      tcasRetardAt = raStart + u(5, 8);
+      static const float retard[]{23.9F, 24.0F, 24.0F, 0.0F, 24.5F};
+      tcasRetardAngle = retard[rng() % 5];
+      tcasBackAt = tcasRetardAt + u(1, 6);
+      raLen = std::fmax(raLen, tcasBackAt - raStart + 8);
+      afStart[0] = chance(0.5) ? raStart : tcasRetardAt + u(0.1, 3);
+      afLen[0] = u(0.05, 3);
+      afStart[1] = tcasBackAt + u(0.2, 4);
+      afLen[1] = u(0.5, 6);
+      afStart[2] = -1;
+      vmax = chance(0.7);
+    }
+    if (afStart[0] >= 0 && chance(0.3)) {
+      afLen[0] = std::fmax(afLen[0], 6.0);
+      instinctiveAt = afStart[0] + u(1, 2.5);
+      athrPushAt[0] = instinctiveAt + u(0.6, 2);
+    }
+    if (vmax && chance(0.5)) {
+      vmaxOffset = 20;
+    }
+    adrNcd = vmax && chance(0.15);
+    vmaxNcd = vmax && chance(0.2);
+    raExact = !tcas && chance(0.3);
+    raNcd = !tcas && chance(0.15);
+    touchdown = !tcas && chance(0.4);
+    touchdownAt = -1;
+    apFdOffDelay = chance(0.7) ? u(0.5, 4) : 1e9;
+    groundStart = !tcas && chance(0.1) ? u(0, epLen * 0.7) : -1;
+    groundLen = u(5, 20);
   }
 
   void apply(fmgc_inputs& in, double dt) {
@@ -181,6 +229,9 @@ struct AthrScenario {
         a = sweepTo > sweepFrom ? std::fmin(a, sweepTo) : std::fmax(a, sweepTo);
         tlaOwn = a;
         tlaOpp = a + (te > epLen / 2 ? 0.0F : 1.0F);
+      } else if (levers == Levers::TcasScript) {
+        tlaOpp = tcasStartAngleOpp;
+        tlaOwn = te >= tcasRetardAt && te < tcasBackAt ? tcasRetardAngle : 25.0F;
       } else if (te >= nextLeverChange) {
         newLevers();
       }
@@ -244,12 +295,63 @@ struct AthrScenario {
       di.athr_instinctive_disc = true;
     }
 
-    // VMAX relative to IAS
+    // VMAX relative to IAS (all ADRs at the same IAS; offset 20 is made exact in float: VMAX + (-20) == IAS)
     if (vmax) {
       float ias = bus.adr_own_bus.airspeed_computed_kn.Data;
+      for (auto* adr : {&bus.adr_own_bus, &bus.adr_opp_bus, &bus.adr_3_bus}) {
+        adr->airspeed_computed_kn.Data = ias;
+        if (adrNcd) {
+          adr->airspeed_computed_kn.SSM = 1;
+        }
+      }
+      float v = ias + static_cast<float>(vmaxOffset);
+      if (vmaxOffset == 20) {
+        while (v + -20.0F > ias) {
+          v = std::nextafter(v, -INFINITY);
+        }
+        while (v + -20.0F < ias) {
+          v = std::nextafter(v, INFINITY);
+        }
+      }
       for (auto* w : {&bus.fac_own_bus.v_max_kn, &bus.fac_opp_bus.v_max_kn}) {
+        w->SSM = vmaxNcd ? 1 : 3;
+        w->Data = v;
+      }
+    }
+
+    // radio height (descending in the approach scenario): exactly 40 ft, or not normal
+    float ra = bus.ra_own_bus.radio_height_ft.Data;
+    for (auto* w : {&bus.ra_own_bus.radio_height_ft, &bus.ra_opp_bus.radio_height_ft}) {
+      if (raExact && ra >= 36.0F && ra <= 44.0F) {
+        w->Data = 40.0F;
+      }
+      if (raNcd && ra > 40.0F && ra < 300.0F) {
+        w->SSM = 1;
+      }
+    }
+
+    // on the ground: touchdown at 0 ft RA, or a ground window; AP/FD disconnection there
+    if (touchdown && touchdownAt < 0 && ra < 3.0F) {
+      touchdownAt = te;
+    }
+    bool inGroundWindow = window(groundStart, groundLen);
+    if ((touchdown && touchdownAt >= 0) || inGroundWindow) {
+      for (auto* w : {&bus.fac_own_bus.discrete_word_5, &bus.fac_opp_bus.discrete_word_5}) {
         w->SSM = 3;
-        w->Data = ias + static_cast<float>(vmaxOffset);
+        setBit(*w, 17, false);
+        setBit(*w, 18, true);
+        setBit(*w, 19, true);
+      }
+      double since = inGroundWindow ? te - groundStart : te - touchdownAt;
+      if (since >= apFdOffDelay || inGroundWindow) {
+        setBit(bus.fcu_bus.fcu_discrete_word_2, 26, true);
+        setBit(bus.fcu_bus.fcu_discrete_word_2, 27, true);
+        di.fd_opp_engaged = false;
+        di.ap_opp_engaged = false;
+        di.ap_instinctive_disc = true;
+      }
+      if (inGroundWindow && since >= 3 && since < 3.2) {
+        di.fcu_athr_button = true;
       }
     }
 
