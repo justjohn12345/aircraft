@@ -213,5 +213,47 @@ approach + fuzz, targets scenarios alone / free with the fuzzer / free with the 
 non-zero and changing, every named condition seen (`build/check-targets/conditions.summary`). The vertical check
 (which now calls the shared preset and ALT soft functions) still passes: 374 runs, 0 mismatches.
 
-Without the synthetic episodes the recordings never have a HDG/TRK preset, the DES lower margin only in 2 files, and
-few SPD/MACH pushes; `src/scenario_targets.h` supplies those (see its header).
+Without the synthetic episodes the recordings never have a HDG/TRK preset, the DES lower margin only in 2 files, ALT
+soft in 6 files and SPD/MACH pushes in 4; `src/scenario_targets.h` supplies those (see its header).
+
+## Mutation test (2026-11-14)
+
+646 single-point mutants of `readable/targets.cpp` (constants ×1.25/×0.8 or ±1, `&&`↔`||`, `!` removed, comparison
+flips, edge/timer argument flips, `fmax`↔`fmin`, `+`↔`-`, `*`→`/`, stuck-at true/false of every boolean input and
+local), each run over the corpus suite (the 440 runs above, small files first) until a run mismatches: **621 caught**,
+2 do not compile, 3 only touch a comment; 20 survive:
+
+- equivalent (13): the six `own = !oppSync` mutants (`own` only feeds the coverage trace); `cond` stuck true in the ALT
+  soft set (`!reset` already contains `cond`); `!mach` dropped in the Mach set and `vpathSpeed` stuck true in the lower
+  margin set (the reset covers those cases and wins); `dual_ra_failure` stuck false in the preset (with both RAs failed
+  the raw radio height is 2500 ft, never below 30 ft); `<`→`<=` in the ground speed mini turn direction (a tie is ±180°,
+  same cosine); `+ 360`↔`- 360` inside the wrapped wind angle (the same angle mod 360);
+- unreachable in stock (3): FINAL as a preset "guided" mode (two mutants: stock FINAL cannot engage, the FMS never
+  sends `final_app_can_engage`); the go-around speed memo's first-frame priming (SRS go-around cannot be active on the
+  first running frame);
+- need a scenario (4): the 10 kt / 4 s ALT soft exit with the threshold at 8 kt, and a speed error of exactly 10 kt
+  (both need the soft mode engaged when the speed moves off, which the recordings allow only in a few cruise
+  segments); `!low` in the preset reset (a preset made below 30 ft in flight with no HDG/TRK/NAV, then a climb); LAND
+  without G/S when the FMS speed is lost in flight.
+
+Four survivors of the first pass were caught on a rerun after extending the scenario (radio height held at exactly
+700 ft and 30 ft, ALT soft exits every ~2 min): the 700 ft VAPP-memo threshold, the 30 ft preset threshold, the 10 kt
+→ 12.5 kt soft exit, and the preset's "altitude ≤ FCU altitude" in SRS takeoff.
+
+## Observations from the corpus (`--events`)
+
+- **Managed target is the FMS's CAS.** In climb and cruise below the crossover the FMS sends 290.00 kt
+  (`A32NX_SPEEDS_MANAGED_PFD`) and the FMGC flies it whatever the Mach latch says; above the crossover the FMS sends the
+  CAS of its Mach target (2026-11-14-16-38-03 at FL350: 264.7 kt for M0.78). The Mach request
+  (`fms_mach_mode_activate`) arrives as a pulse at the crossover (t = 1289 s, FL309, 289.9 kt): any "290 kt instead of
+  the Mach" behaviour comes from the FMS value, not from the FMGC.
+- **SPD/MACH in managed speed** (2026-11-14-14-07-54, t = 862 s, FL250, CLB): the pushbutton sets the FMGC's Mach latch
+  while the target stays 290 kt; a second press clears it. At t = 903 s managed speed engages (SPD knob push) with the
+  latch set from a press in selected speed, and no FMS speed request follows: the FMGC reports Mach (FMA/FCU) with a
+  290 kt CAS target below the crossover for 9 s, until the pilot presses the pushbutton again. In 2026-11-14-16-38-03
+  the same sequence (t = 877 s and 923 s) is followed by `fms_spd_mode_activate` 0.1–0.9 s after the managed
+  engagement, which clears the latch. The FMGC itself never re-derives the Mach state; only FMS/MCDU requests and the
+  pushbutton change it.
+- **Selected Mach after a press in managed speed** (2026-11-09-18-55-35, t = 1877–1884 s, FL280 DES): pushbutton in
+  managed speed (latch set, target still 290 kt), FCU Mach turned to 0.80, knob pulled: V_c jumps from 290 to 317.2 kt
+  (M0.80 at FL280), as commanded.
