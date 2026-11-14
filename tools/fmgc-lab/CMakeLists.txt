@@ -116,7 +116,8 @@ foreach(variant ${MODEL_VARIANTS})
   target_compile_options(fmgc_model_stock_hooked PRIVATE -O2 -ffp-contract=off)
 
   add_executable(fmgc-check-laws src/check_laws.cpp readable/laws_output.cpp readable/laws_alt.cpp
-    readable/laws_vs_fpa.cpp readable/laws_speed.cpp readable/laws_path.cpp ${hooked_dir}/outer_io.gen.h
+    readable/laws_vs_fpa.cpp readable/laws_speed.cpp readable/laws_path.cpp readable/laws_lateral.cpp
+    ${hooked_dir}/outer_io.gen.h
     ${CMAKE_CURRENT_BINARY_DIR}/gen-stock/fields.gen.h)
   target_include_directories(fmgc-check-laws PRIVATE ${hooked_dir} ${CMAKE_CURRENT_BINARY_DIR}/gen-stock ${WASM_SRC} src
     readable)

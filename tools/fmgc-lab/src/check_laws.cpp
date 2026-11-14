@@ -10,7 +10,11 @@
 //   - each rewritten law's FD and AP command against its probes (whether or not the law is active);
 //   - the output stage (FD and AP theta command) against the generated outputs, fed with the generated law commands
 //     (default) or, with --free, with the readable ones (laws not rewritten yet still use the generated commands);
-//   - the flare law outputs, once rewritten.
+//   - the flare law outputs, once rewritten;
+//   - each lateral law's roll, sideslip and nosewheel command (readable/laws_lateral.cpp, probes in
+//     src/probes/lateral.txt), Phi_loc_c, and the lateral output stage (FD/AP roll, FD/AP sideslip, nosewheel), fed
+//     like the vertical one. The lateral laws run first; with --free the vertical laws read the readable AP sideslip
+//     command (the flare law uses it).
 // Exact comparison by default (--tol X for an absolute tolerance).
 
 #include <chrono>
@@ -29,6 +33,7 @@
 #include "input_fuzzer.h"
 #include "lab_hooks.h"
 #include "laws.h"
+#include "laws_lateral.h"
 #include "outer_io.gen.h"
 #include "replay_core.h"
 #include "scenario_approach.h"
@@ -147,7 +152,15 @@ int main(int argc, char** argv) {
   const char* lawProbe[L::kLawCount] = {nullptr, "alt_hold", "alt_acq", "spd_mach", "vs",
                                         "fpa",   "gs",       "flare",   "srs",      "vpath"};
 
-  labHooks().onOuterReset = [&]() { laws.reset(); };
+  L::LateralLaws lateral;
+  lateral.reset();
+  long lateralSteps[L::kLateralLawCount + 1]{};  // steps per active lateral law (last: out of range)
+  long lateralApSteps[L::kLateralLawCount + 1]{};
+
+  labHooks().onOuterReset = [&]() {
+    laws.reset();
+    lateral.reset();
+  };
   labHooks().onOuterStep = [&]() {
     lawSteps++;
     check.step = lawSteps;
@@ -155,10 +168,45 @@ int main(int argc, char** argv) {
     unpackOuterInputs(labHooks().outerIn, io);
     ap_laws_output gen = io;
     unpackOuterOutputs(labHooks().outerOut, gen);
-    // The lateral laws run before the vertical ones in the same step: their outputs that the vertical laws read are
-    // inputs here (the flare law uses the AP sideslip command).
-    io.output.autopilot.Beta_c_deg = gen.output.autopilot.Beta_c_deg;
     check.time = io.time.simulation_time;
+
+    // ---- lateral laws (computed before the vertical ones in the generated step)
+    int latLaw = static_cast<int>(io.input.lateral_law);
+    latLaw = latLaw >= 0 && latLaw < L::kLateralLawCount ? latLaw : L::kLateralLawCount;
+    lateralSteps[latLaw]++;
+    lateralApSteps[latLaw] += io.input.ap_engaged;
+    L::LateralResults latReadable;
+    lateral.computeLaws(io, latReadable);
+    L::LateralCommand latGenerated[L::kLateralLawCount];
+    for (int k = 0; k < L::kLateralLawCount; k++) {
+      std::string n = L::lateralLawName(k);
+      latGenerated[k].phi = probe(("lat.phi." + n).c_str());
+      latGenerated[k].beta = probe(("lat.beta." + n).c_str());
+      latGenerated[k].nosewheel = probe(("lat.nose." + n).c_str());
+      if (latReadable.rewritten[k]) {
+        check.compare("lat." + n + ".phi", latGenerated[k].phi, latReadable.cmd[k].phi);
+        check.compare("lat." + n + ".beta", latGenerated[k].beta, latReadable.cmd[k].beta);
+        check.compare("lat." + n + ".nose", latGenerated[k].nosewheel, latReadable.cmd[k].nosewheel);
+      }
+    }
+    check.compare("lat.phi_loc_c", gen.output.Phi_loc_c, latReadable.phiLocDeg);
+    L::LateralCommand latFeed[L::kLateralLawCount];
+    for (int k = 0; k < L::kLateralLawCount; k++) {
+      latFeed[k] = freeRunning && latReadable.rewritten[k] ? latReadable.cmd[k] : latGenerated[k];
+    }
+    L::LateralOutputs lo{};
+    bool latOutputs = lateral.computeOutputs(io, latFeed, lo);
+    if (latOutputs) {
+      check.compare("output.fd_phi", gen.output.flight_director.Phi_c_deg, lo.fdPhiDeg);
+      check.compare("output.ap_phi", gen.output.autopilot.Phi_c_deg, lo.apPhiDeg);
+      check.compare("output.fd_beta", gen.output.flight_director.Beta_c_deg, lo.fdBetaDeg);
+      check.compare("output.ap_beta", gen.output.autopilot.Beta_c_deg, lo.apBetaDeg);
+      check.compare("output.nosewheel", gen.output.Nosewheel_c, lo.nosewheel);
+    }
+
+    // The vertical laws read the lateral AP sideslip command (flare law): the generated one, or with --free the
+    // readable one.
+    io.output.autopilot.Beta_c_deg = freeRunning && latOutputs ? lo.apBetaDeg : gen.output.autopilot.Beta_c_deg;
 
     L::LawResults readable;
     laws.computeLaws(io, readable);
@@ -210,6 +258,12 @@ int main(int argc, char** argv) {
     mode += ", approach scenarios (seed " + std::to_string(approachSeed) + ")";
   }
   std::printf("file     %s\nmode     %s\nsteps    %ld outer-loop steps\n", path.c_str(), mode.c_str(), lawSteps);
+  std::printf("lateral  active steps (AP engaged):");
+  for (int k = 0; k <= L::kLateralLawCount; k++) {
+    std::printf(" %s %ld (%ld)", k < L::kLateralLawCount ? L::lateralLawName(k) : "other", lateralSteps[k],
+                lateralApSteps[k]);
+  }
+  std::printf("\n");
   std::printf("\n%-30s %9s %9s %10s %10s %16s %16s %10s\n", "channel", "checked", "mismatch", "first", "t_first",
               "generated", "readable", "max|diff|");
   long failing = 0;
