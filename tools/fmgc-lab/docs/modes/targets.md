@@ -7,7 +7,7 @@ the A/THR (`V_c` = `spd_target_kts`), the PFD speed target, and the ALT soft mod
 `build/models/stock/FmgcComputer.cpp` (= upstream master).
 
 Not in this block: `alt_sel_or_cstr` / `alt_cstr_applicable` (the altitude target) are computed at 1636–1664, inside the
-AP/FD engagement block, and `rwy_hdg_memo` (the memorised ILS course used by the ground speed mini) at 1366–1375.
+AP/FD engagement block (readable with the vertical modes, `vertical_alt.cpp`), and `rwy_hdg_memo` (the memorised ILS course used by the ground speed mini) at 1366–1375.
 
 ## Conventions
 

@@ -17,7 +17,7 @@
 // ALT soft mode this frame's Mach latch and speed target).
 //
 // Not here: alt_sel_or_cstr / alt_cstr_applicable (the altitude target) are computed at FmgcComputer.cpp 1636-1664,
-// inside the AP/FD engagement block.
+// inside the AP/FD engagement block; readable in vertical_alt.cpp (Signal::AltCstrApplicable / AltSelOrCstr).
 
 #pragma once
 

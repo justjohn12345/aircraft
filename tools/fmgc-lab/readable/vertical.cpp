@@ -8,12 +8,12 @@ namespace fmgc::readable {
 
 const char* signalName(Signal s) {
   static const char* const names[] = {
-      "SrsTakeoff", "RwyLoc", "RwyTrk", "RwyActive", "LandArmed", "Land", "RollOut", "Align", "FlareMemory",
-      "FinalArmed", "Final", "SrsGoAround", "GaTrk", "LateralReversion", "HdgTrk", "HdgActive", "TrkActive",
-      "NavArmed", "Nav", "LocArmed", "LocCapture", "LocTrack", "AltArmPossible", "AltArmed", "AltCapture", "AltHold",
-      "AltCruiseMemory", "AltCruise", "ReversionVs", "VsFpa", "ClbArmed", "Clb", "DesArmed", "Des", "OpClb",
-      "ReversionOpClb", "OpDes", "ExpClb", "ExpDes", "GlideArmed", "GsCapture", "GsTrack", "TcasArmed", "Tcas",
-      "TcasAltAcq", "TcasAltHold", "RollFdBarsFlashing", "HdgTrkPreset", "AltSoft", "AnyLateralMode",
+      "AltCstrApplicable", "AltSelOrCstr", "SrsTakeoff", "RwyLoc", "RwyTrk", "RwyActive", "LandArmed", "Land",
+      "RollOut", "Align", "FlareMemory", "FinalArmed", "Final", "SrsGoAround", "GaTrk", "LateralReversion", "HdgTrk",
+      "HdgActive", "TrkActive", "NavArmed", "Nav", "LocArmed", "LocCapture", "LocTrack", "AltArmPossible", "AltArmed",
+      "AltCapture", "AltHold", "AltCruiseMemory", "AltCruise", "ReversionVs", "VsFpa", "ClbArmed", "Clb", "DesArmed",
+      "Des", "OpClb", "ReversionOpClb", "OpDes", "ExpClb", "ExpDes", "GlideArmed", "GsCapture", "GsTrack", "TcasArmed",
+      "Tcas", "TcasAltAcq", "TcasAltHold", "RollFdBarsFlashing", "HdgTrkPreset", "AltSoft", "AnyLateralMode",
       "ActiveLateralLaw", "VsActive", "FpaActive", "Flare", "LocBcSelection"};
   static_assert(sizeof(names) / sizeof(names[0]) == kSignalCount, "one name per signal");
   return names[static_cast<std::size_t>(s)];
