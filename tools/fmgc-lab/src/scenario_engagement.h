@@ -21,8 +21,12 @@
 //     FM not valid, FAC speeds/weights words failed, both RAs failed, both FCU channels unhealthy; FM lost in G/S
 //     between 450 and 950 ft RA (with the approach scenario);
 //   - the runway course: true heading 15–30° off the ILS runway heading low down (ROLL OUT off course, with the approach
-//     scenario);
-//   - FD auto disengage / V/S not held: VMAX just below, or VLS just above, the IAS.
+//     scenario), sometimes alternating above and below 20° every second (retriggers of the 3 s monostable);
+//   - FD auto disengage / V/S not held: VMAX just below, or VLS just above, the IAS (IAS exactly VLS + 3 / VMAX - 3
+//     included), and the IR inertial V/S at the FCU V/S target +- 49/50/51 fpm;
+//   - landing capability: the opposite AP engaged and in LAND (its bus bits) whenever this FMGC has LAND armed/LAND,
+//     with the bus tie open (LAND 3 FAIL OP possible); a failure (opposite RA, ELAC, bus tie, ADR 3, AP or A/THR
+//     instinctive disconnect) as the radio height passes 60–130 ft; random LAND capacity bits on the opposite bus.
 // Physically inconsistent with the rest of the recording, which is fine: the generated model is the oracle.
 
 #pragma once
@@ -62,8 +66,17 @@ struct EngagementScenario {
   double engineStartAt = -1;
   float groundLever = -1;
   double leverAt = -1;
-  bool oppLeverToo = false;
+  bool oppLeverToo = false, oppLeverOnly = false;
   bool fmLossInGs = false;
+  // landing capability
+  bool dualLand = false;  // opposite AP engaged and in LAND whenever this FMGC has LAND armed/LAND
+  int landFailure = 0;    // failure injected when the radio height passes landFailRa in LAND: 1 opp RA, 2 ELAC,
+                          // 3 bus tie, 4 ADR 3, 5 AP instinctive, 6 A/THR instinctive
+  float landFailRa = 100;
+  double landFailAt = -1, landFailLen = 0;
+  bool oppCapacity = false;  // random LAND capacity bits on the opposite FMGC's word 4
+  uint32_t oppCapacityBits = 0;
+  double nextCapacityChange = 0;
   double fmLossAt = -1, fmLossLen = 0;
   // A/THR
   double athrPushAt[3]{-1, -1, -1};
@@ -83,6 +96,8 @@ struct EngagementScenario {
   float courseOffset = 0;
   // FD auto disengage / V/S not held
   bool speedLimit = false;
+  float vsOffset = 0;
+  bool offCourseToggle = false;  // heading deviation alternating above/below 20° every second (monostable retrigger)
 
   double total = 0, lockAfter = 1e18;
   bool lockUsed = false;
@@ -174,19 +189,34 @@ struct EngagementScenario {
 
     offCourse = chance(0.25);
     courseOffset = static_cast<float>((chance(0.5) ? 1 : -1) * u(15, 30));
+    offCourseToggle = chance(0.4);
 
     speedLimit = chance(0.15);
     if (speedLimit) {
       // FD auto disengage (VMAX + 4 < IAS, IAS < VLS - 2) and V/S not held (IAS within 3 kt of VLS / VMAX)
-      static const float vlsNear[]{1.0F, 2.0F, 3.5F, -30.0F};
-      static const float vmaxNear[]{-4.5F, -4.0F, 2.0F, 2.5F, 60.0F};
+      static const float vlsNear[]{1.0F, 2.0F, 3.5F, -3.0F, -30.0F};
+      static const float vmaxNear[]{-4.5F, -4.0F, 2.0F, 2.5F, 3.0F, 60.0F};
       vlsOffset = pick(vlsNear);
       vmaxOffset = pick(vmaxNear);
+      static const float vsNear[]{0.0F, -50.0F, -49.0F, -51.0F, 50.0F, 49.0F, 51.0F};
+      vsOffset = pick(vsNear);
+    } else {
+      vsOffset = 0;
     }
     oppLeverToo = chance(0.5);
+    oppLeverOnly = !oppLeverToo && chance(0.4);
     fmLossInGs = chance(0.5);
     fmLossAt = -1;
     fmLossLen = u(0.5, 4);
+    dualLand = chance(0.4);
+    landFailure = chance(0.6) ? static_cast<int>(1 + rng() % 6) : 0;
+    static const float failRas[]{60.0F, 90.0F, 99.0F, 101.0F, 110.0F, 130.0F};
+    landFailRa = pick(failRas);
+    landFailAt = -1;
+    landFailLen = u(0.3, 5);
+    oppCapacity = chance(0.4);
+    oppCapacityBits = 0;
+    nextCapacityChange = 0;
   }
 
   /** `last`: the generated outputs of the previous step. */
@@ -242,9 +272,25 @@ struct EngagementScenario {
       }
       float vls = ias + vlsOffset;
       float vmax = ias + vmaxOffset;
+      // offsets -3 / +3 are made exact in float: IAS == VLS + 3, IAS == VMAX - 3 (the V/S target not held bounds)
+      if (vlsOffset == -3.0F) {
+        while (vls + 3.0F > ias) vls = std::nextafter(vls, -INFINITY);
+        while (vls + 3.0F < ias) vls = std::nextafter(vls, INFINITY);
+      }
+      if (vmaxOffset == 3.0F) {
+        while (vmax - 3.0F > ias) vmax = std::nextafter(vmax, -INFINITY);
+        while (vmax - 3.0F < ias) vmax = std::nextafter(vmax, INFINITY);
+      }
       for (auto* fac : {&bus.fac_own_bus, &bus.fac_opp_bus}) {
         fac->v_ls_kn.Data = vls;
         fac->v_max_kn.Data = vmax;
+      }
+    }
+    // inertial V/S at the FCU V/S target +- 50 fpm (the V/S target not held threshold)
+    if (vsOffset != 0.0F) {
+      float target = bus.fcu_bus.selected_vz_ft_min.Data;
+      for (auto* ir : {&bus.ir_own_bus, &bus.ir_opp_bus, &bus.ir_3_bus}) {
+        ir->inertial_vertical_speed_ft_s.Data = target + vsOffset;
       }
     }
 
@@ -288,8 +334,10 @@ struct EngagementScenario {
       }
       if (groundLever >= 0 && te >= leverAt) {
         bus.fadec_own_bus.selected_tla_deg.SSM = 3;
-        bus.fadec_own_bus.selected_tla_deg.Data = groundLever;
-        if (oppLeverToo || te > leverAt + 2) {
+        if (!oppLeverOnly || te > leverAt + 2) {
+          bus.fadec_own_bus.selected_tla_deg.Data = groundLever;
+        }
+        if (oppLeverToo || oppLeverOnly || te > leverAt + 2) {
           bus.fadec_opp_bus.selected_tla_deg.SSM = 3;
           bus.fadec_opp_bus.selected_tla_deg.Data = groundLever;
         }
@@ -370,7 +418,47 @@ struct EngagementScenario {
     if (offCourse && bus.ra_own_bus.radio_height_ft.Data < 10.0F) {
       float rwy = bus.ils_own_bus.runway_heading_deg.Data;
       for (auto* ir : {&bus.ir_own_bus, &bus.ir_opp_bus, &bus.ir_3_bus}) {
-        ir->heading_true_deg.Data = rwy + courseOffset;
+        float offset = offCourseToggle && std::fmod(te, 2.0) < 1.0 ? courseOffset * 0.5F : courseOffset;
+        ir->heading_true_deg.Data = rwy + offset;
+      }
+    }
+
+    // landing capability: the opposite AP in LAND with this FMGC's LAND (dual AP, LAND 3 FAIL OP possible), and a
+    // failure injected as the radio height passes a height around the 100 ft freeze
+    const auto& lastAp = last.ap_fd_logic;
+    bool landLast = lastAp.armed_modes.land_armed || lastAp.lateral_modes.land_active;
+    if (dualLand && landLast) {
+      di.ap_opp_engaged = true;
+      di.powersupply_split = true;
+      bus.fmgc_opp_bus.discrete_word_3.SSM = 3;
+      bus.fmgc_opp_bus.discrete_word_4.SSM = 3;
+      setBit(bus.fmgc_opp_bus.discrete_word_3, 20, lastAp.armed_modes.land_armed);
+      setBit(bus.fmgc_opp_bus.discrete_word_4, 14, lastAp.lateral_modes.land_active);
+    }
+    if (landFailure && landFailAt < 0 && landLast && lastRa < landFailRa) {
+      landFailAt = te;
+    }
+    if (window(landFailAt, landFailLen)) {
+      switch (landFailure) {
+        case 1: bus.ra_opp_bus.radio_height_ft.SSM = 0; break;
+        case 2: di.elac_opp_ap_disc = true; break;
+        case 3: di.powersupply_split = false; break;
+        case 4: bus.adr_3_bus.airspeed_computed_kn.SSM = 0; break;
+        case 5: di.ap_instinctive_disc = true; break;
+        default: di.athr_instinctive_disc = true; break;
+      }
+    }
+
+    // LAND capacity bits of the opposite FMGC (bits 15-18 of its word 4: neighbours of the three capacity bits)
+    if (oppCapacity) {
+      if (te >= nextCapacityChange) {
+        oppCapacityBits = static_cast<uint32_t>(rng() % 16);
+        nextCapacityChange = te + u(0.5, 8);
+      }
+      auto& w4 = bus.fmgc_opp_bus.discrete_word_4;
+      w4.SSM = chance(0.05) ? 0 : 3;
+      for (int b = 0; b < 4; b++) {
+        setBit(w4, 15 + b, ((oppCapacityBits >> b) & 1) != 0);
       }
     }
   }
