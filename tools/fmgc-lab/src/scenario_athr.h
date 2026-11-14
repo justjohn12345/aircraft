@@ -22,7 +22,8 @@
 //     and back to CL, with alpha floor starting on the RA frame or after the lever moves (the TCAS alpha floor latch);
 //   - alpha floor held while the A/THR is disconnected and re-engaged (no new rising edge);
 //   - IAS exactly at VMAX - 20 kt (all ADRs at the same IAS), VMAX or IAS words not normal;
-//   - radio height (from the approach scenario) held at exactly 40 ft, or not normal below 300 ft;
+//   - radio height (from the approach scenario) held at exactly 40 ft, or not normal below 300 ft, with A/THR presses
+//     on the way down (in LAND a press only engages), so that RETARD can engage;
 //   - touchdown when the radio height reaches 0 (FAC on-ground bits) and AP/FD disconnection on the ground, and ground
 //     windows with A/THR presses and no AP/FD.
 // Physically inconsistent with the rest of the recording, which is fine: the generated model is the oracle.
@@ -72,6 +73,7 @@ struct AthrScenario {
   double tcasRetardAt = -1, tcasBackAt = -1;
   bool adrNcd = false, vmaxNcd = false, raExact = false, raNcd = false, touchdown = false;
   double touchdownAt = -1, apFdOffDelay = 0, groundStart = -1, groundLen = 0;
+  float lastRa = 1e9F;
   uint32_t oppAts = 0;
   double nextOppChange = 0;
 
@@ -188,18 +190,31 @@ struct AthrScenario {
       afLen[1] = u(0.5, 6);
       afStart[2] = -1;
       vmax = chance(0.7);
+    } else if (tcas && chance(0.6)) {
+      // manual thrust during the RA, above the thrust reduction altitude: the climbing-RA LVR CLB inhibition
+      levers = Levers::Same;
+      tlaOwn = tlaOpp = chance(0.5) ? 30.0F : 40.0F;
+      nextLeverChange = 1e9;
+      ssmOwn = ssmOpp = 3;
+      thrRed = true;
+      thrRedPinned = false;
+      thrRedOffset = -1000;
+      goAround = false;
+      vmax = true;
+      static const double offsets[]{10, 19.5, 20, 30};
+      vmaxOffset = offsets[rng() % 4];
     }
     if (afStart[0] >= 0 && chance(0.3)) {
       afLen[0] = std::fmax(afLen[0], 6.0);
       instinctiveAt = afStart[0] + u(1, 2.5);
       athrPushAt[0] = instinctiveAt + u(0.6, 2);
     }
-    if (vmax && chance(0.5)) {
+    if (vmax && levers != Levers::Same && chance(0.5)) {
       vmaxOffset = 20;
     }
-    adrNcd = vmax && chance(0.15);
-    vmaxNcd = vmax && chance(0.2);
-    raExact = !tcas && chance(0.3);
+    adrNcd = vmax && chance(tcas ? 0.3 : 0.15);
+    vmaxNcd = vmax && chance(tcas ? 0.3 : 0.2);
+    raExact = !tcas && chance(0.6);
     raNcd = !tcas && chance(0.15);
     touchdown = !tcas && chance(0.4);
     touchdownAt = -1;
@@ -322,12 +337,25 @@ struct AthrScenario {
     // radio height (descending in the approach scenario): exactly 40 ft, or not normal
     float ra = bus.ra_own_bus.radio_height_ft.Data;
     for (auto* w : {&bus.ra_own_bus.radio_height_ft, &bus.ra_opp_bus.radio_height_ft}) {
-      if (raExact && ra >= 36.0F && ra <= 44.0F) {
+      if (raExact && ra >= 30.0F && ra <= 50.0F) {
         w->Data = 40.0F;
       }
       if (raNcd && ra > 40.0F && ra < 300.0F) {
         w->SSM = 1;
       }
+    }
+
+    // A/THR presses when the radio height passes 150, 100, 60 and 45 ft
+    if (raExact || raNcd) {
+      for (float h : {150.0F, 100.0F, 60.0F, 45.0F}) {
+        if (lastRa >= h && ra < h) {
+          athrPushAt[2] = te;
+        }
+      }
+    }
+    lastRa = ra;
+    if (window(athrPushAt[2], 0.2)) {
+      di.fcu_athr_button = true;
     }
 
     // on the ground: touchdown at 0 ft RA, or a ground window; AP/FD disconnection there
