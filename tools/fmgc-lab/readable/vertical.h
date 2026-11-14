@@ -8,8 +8,9 @@
 // Each vertical mode, armed mode or derived flag is a Signal. Every frame the signals are updated one by one in the
 // order the generated step() computes them (the Signal enum order), because a condition may read a signal that was
 // already updated this frame (`s[...]`) or the previous frame's outputs (`f.last`). Latches use blocks::SrLatch
-// semantics (reset wins). The parts of the FMGC not rewritten yet (input conditioning, AP/FD engagement, lateral
-// modes, TCAS computations) come in through External, filled from the generated model.
+// semantics (reset wins). The parts of the FMGC not rewritten yet (input conditioning, AP/FD engagement, TCAS
+// computations) come in through External, filled from the generated model. The lateral modes (lateral_modes.cpp) are
+// signals too, interleaved with the vertical ones in the generated update order.
 
 #pragma once
 
@@ -18,6 +19,7 @@
 
 #include "FmgcComputer_types.h"
 #include "blocks.h"
+#include "lateral_modes.h"
 #include "vertical_alt.h"
 #include "vertical_approach.h"
 #include "vertical_climb_descent.h"
@@ -28,12 +30,27 @@ namespace fmgc::readable {
 /** In the order the generated step() updates them (FmgcComputer.cpp line in brackets). */
 enum class Signal : int {
   SrsTakeoff,       // [1696] longitudinal_modes.pitch_takeoff_active
+  RwyLoc,           // [1754] lateral_modes.rwy_loc_submode_active (RWY)
+  RwyTrk,           // [1782] lateral_modes.rwy_trk_submode_active (RWY TRK)
+  RwyActive,        // [1793] lateral_modes.rwy_active (combinational: RWY or RWY TRK)
   LandArmed,        // [1839] armed_modes.land_armed
   Land,             // [1872] lateral_modes.land_active
+  RollOut,          // [1906] lateral_modes.rollout_submode_active
+  Align,            // [1910] lateral_modes.align_submode_active (combinational)
   FlareMemory,      // [1917] FLARE memory latch (no output)
   FinalArmed,       // [1957] armed_modes.final_des_armed
   Final,            // [1986] longitudinal_modes.final_des_active
   SrsGoAround,      // [2026] longitudinal_modes.pitch_goaround_active
+  GaTrk,            // [2052] lateral_modes.roll_goaround_active (GA TRK)
+  LateralReversion, // [2101] lateral_mode_reversion (combinational, output at 4035)
+  HdgTrk,           // [2129] HDG/TRK latch, split into hdg_active / trk_active by the HDG-V/S / TRK-FPA selection
+  HdgActive,        // [2139] lateral_modes.hdg_active (combinational)
+  TrkActive,        // [2140] lateral_modes.trk_active (combinational)
+  NavArmed,         // [2183] armed_modes.nav_armed
+  Nav,              // [2214] lateral_modes.nav_active
+  LocArmed,         // [2241] armed_modes.loc_armed
+  LocCapture,       // [2374] lateral_modes.loc_cpt_active (LOC*)
+  LocTrack,         // [2404] lateral_modes.loc_trk_active (LOC)
   AltArmPossible,   // [2418] armed_modes.alt_acq_arm_possible
   AltArmed,         // [2465] armed_modes.alt_acq_armed (combinational)
   AltCapture,       // [2547] longitudinal_modes.alt_acq_active (ALT*)
@@ -58,10 +75,15 @@ enum class Signal : int {
   Tcas,             // [3300] longitudinal_modes.tcas_active
   TcasAltAcq,       // [3311] TCAS ALT_ACQ submode latch
   TcasAltHold,      // [3318] TCAS ALT_HOLD submode latch
+  RollFdBarsFlashing,  // [3398] roll_fd_bars_flashing (10 s after a lateral reversion or AP/FD engagement)
+  HdgTrkPreset,     // [3434] hdg_trk_preset_available
   AltSoft,          // [3734] alt_soft_mode_active
+  AnyLateralMode,   // [3736] any_lateral_mode_engaged (combinational)
+  ActiveLateralLaw, // [3742] active_lateral_law (enum, in Signals::activeLateralLaw; the bool is law != NONE)
   VsActive,         // [3993] longitudinal_modes.vs_active (combinational)
   FpaActive,        // [3995] longitudinal_modes.fpa_active (combinational)
   Flare,            // [4001] longitudinal_modes.flare_active (combinational)
+  LocBcSelection,   // [4039] loc_bc_selection (a constant: back course is never selected)
   Count
 };
 
@@ -70,6 +92,7 @@ const char* signalName(Signal s);
 
 struct Signals {
   std::array<bool, kSignalCount> v{};
+  lateral_law activeLateralLaw = lateral_law::NONE;  // Signal::ActiveLateralLaw
   bool& operator[](Signal s) { return v[static_cast<std::size_t>(s)]; }
   bool operator[](Signal s) const { return v[static_cast<std::size_t>(s)]; }
 };
@@ -99,6 +122,7 @@ struct External {
   VsTcasExternal vsTcas;
   ClimbDescentExternal climbDescent;
   ApproachExternal approach;
+  LateralExternal lateral;
 };
 
 struct Frame {
@@ -128,11 +152,14 @@ class VerticalModeLogic {
   bool updateClimbDescent(Signal id, const Frame& f, Signals& s);
   void resetApproach(Signals& s);
   bool updateApproach(Signal id, const Frame& f, Signals& s);
+  void resetLateral(Signals& s);
+  bool updateLateral(Signal id, const Frame& f, Signals& s);
 
   AltState alt_;
   VsTcasState vsTcas_;
   ClimbDescentState climbDescent_;
   ApproachState approach_;
+  LateralModesState lateral_;
 };
 
 // ---------------------------------------------------------------------------------------------------------------------
