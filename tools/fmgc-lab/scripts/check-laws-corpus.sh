@@ -1,7 +1,7 @@
 #!/bin/bash
-# Runs the readable vertical control-law check over every recording: generated commands into the output stage,
-# free-running, and N fuzzed runs per file (half of them with synthetic approaches). JOBS limits parallel runs
-# (default: number of cores).
+# Runs the readable control-law check (vertical and lateral laws) over every recording: generated commands into the
+# output stage, free-running, and N fuzzed runs per file (half of them with synthetic approaches). JOBS limits
+# parallel runs (default: number of cores).
 # Usage: JOBS=4 scripts/check-laws-corpus.sh [fuzz runs per file, default 2] [binary, default build/fmgc-check-laws]
 set -uo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
