@@ -18,7 +18,8 @@
 //     past 15 s, both levers to idle (around 2.6°), one ECU not reporting A/THR engaged (status word 3 bit 19) for
 //     0.3–2 s, FAC alpha floor;
 //   - common condition losses around the 0.72 s confirmation: two ADRs or two IRs failed, FAC discrete word 5 failed,
-//     FM not valid, FAC speeds/weights words failed, both RAs failed, both FCU channels unhealthy;
+//     FM not valid, FAC speeds/weights words failed, both RAs failed, both FCU channels unhealthy; FM lost in G/S
+//     between 450 and 950 ft RA (with the approach scenario);
 //   - the runway course: true heading 15–30° off the ILS runway heading low down (ROLL OUT off course, with the approach
 //     scenario);
 //   - FD auto disengage / V/S not held: VMAX just below, or VLS just above, the IAS.
@@ -62,6 +63,8 @@ struct EngagementScenario {
   float groundLever = -1;
   double leverAt = -1;
   bool oppLeverToo = false;
+  bool fmLossInGs = false;
+  double fmLossAt = -1, fmLossLen = 0;
   // A/THR
   double athrPushAt[3]{-1, -1, -1};
   float raFt = -1;
@@ -181,11 +184,13 @@ struct EngagementScenario {
       vmaxOffset = pick(vmaxNear);
     }
     oppLeverToo = chance(0.5);
+    fmLossInGs = chance(0.5);
+    fmLossAt = -1;
+    fmLossLen = u(0.5, 4);
   }
 
   /** `last`: the generated outputs of the previous step. */
   void apply(fmgc_inputs& in, double dt, const fmgc_outputs& last) {
-    (void)last;
     if (te >= epLen) {
       newEpisode();
     }
@@ -194,6 +199,16 @@ struct EngagementScenario {
     auto& bus = in.bus_inputs;
     auto& di = in.discrete_inputs;
     auto window = [&](double start, double len) { return start >= 0 && te >= start && te < start + len; };
+
+    // FM lost in G/S around 700 ft RA (the common condition tolerates it below 700 ft): needs the approach scenario
+    float lastRa = last.logic.ra_computation_data.radio_height_ft.Data;
+    if (fmLossInGs && fmLossAt < 0 && last.ap_fd_logic.longitudinal_modes.gs_trk_active && lastRa > 450.0F &&
+        lastRa < 950.0F) {
+      fmLossAt = te;
+    }
+    if (window(fmLossAt, fmLossLen)) {
+      in.fms_inputs.fm_valid = false;
+    }
 
     // AP pushbutton, instinctive and ELAC disconnects, FAC rudder control
     for (double a : apPushAt) {

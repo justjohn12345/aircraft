@@ -102,3 +102,14 @@ runway course `rwy_hdg_memo` = `FmgcComputer_B.u_lyjj`, IR roll and the outer lo
 LOC (lq). The roll FD bars flashing monostable is at 3392–3404, the HDG/TRK preset (bw) at 3405–3434,
 `any_lateral_mode_engaged` at 3736. `lateral_mode_reset` and `longitudinal_mode_reset` are the same signal (1553).
 `loc_bc_selection` is a constant (false). FCU word 2 bits: 11 HDG/TRK knob pushed, 12 pulled, 13 LOC pushed.
+Corrections from the engagement rewrite (`docs/modes/engagement.md`): the AP/FD/A/THR engagement block is 1380–1559,
+not 1490–1700 (1560–1700 is the TCAS RA decoding, the TRK-FPA deselection latch e, the altitude target and SRS takeoff
+k, which belong to the vertical stage). Order: AP/FD/A/THR common condition (confirm kv, 1382), ROLL OUT heading
+monostable (1389), AP/FD common condition (confirm bv, 1395), FD engaged (1420), AP engage request latch
+`Memory_PreviousInput` (1468), AP engaged `Delay_DSTATE_p` (1482), A/THR inhibit latch g1 (instinctive disconnect held
+15 s, 1490), A/THR engaged `Delay_DSTATE_k` (1528), opposite priority and mode sync (1534–1547), `any_ap_fd_engaged`
+and the mode reset (1548–1559). The AP and A/THR latches read their Q from `Memory_PreviousInput_g` / `_p`, copies made
+at 5108–5109. After the vertical modes, 3335–3403 compute the FD auto disengage, V/S target not held, the AP/FD mode
+reversion pulse and the pitch/roll FD bars flashing. The landing capability (LAND 2/3 capability, inop, capacity;
+memories `pLand3FailOp/Pass`) is 3796–3863, outputs 4049–4054 (rewritten with the engagement, `engagement_land.cpp`). `rtb_fmgcOppPriority_tmp` is `!ap_own_engaged` up to 3372 (read at 1896, 2666–2670,
+3347–3348), then V/S || FPA.
