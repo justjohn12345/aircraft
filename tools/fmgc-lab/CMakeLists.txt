@@ -76,6 +76,11 @@ foreach(variant ${MODEL_VARIANTS})
   target_compile_options(fmgc-check-vertical-${name} PRIVATE -O2 -ffp-contract=off)
   target_link_libraries(fmgc-check-vertical-${name} PRIVATE fmgc_model_${name} ZLIB::ZLIB -static)
 
+  add_executable(fmgc-check-athr-${name} src/check_athr.cpp readable/athr.cpp readable/athr_modes.cpp
+    readable/athr_n1.cpp ${gen_dir}/fields.gen.h)
+  target_include_directories(fmgc-check-athr-${name} PRIVATE ${gen_dir} ${WASM_SRC} src readable)
+  target_compile_options(fmgc-check-athr-${name} PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(fmgc-check-athr-${name} PRIVATE fmgc_model_${name} ZLIB::ZLIB -static)
   add_executable(fmgc-blocks-test-${name} readable/blocks_test.cpp ${gen_dir}/params.gen.h)
   target_include_directories(fmgc-blocks-test-${name} PRIVATE ${gen_dir} ${WASM_SRC} readable)
   target_compile_options(fmgc-blocks-test-${name} PRIVATE -O2 -ffp-contract=off)
