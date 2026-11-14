@@ -15,17 +15,21 @@ if [ -n "$(find "$here/readable" "$here/src" -newer "$bin" \( -name '*.cpp' -o -
 fi
 out=$here/build/check-laws
 rm -rf "$out" && mkdir -p "$out"
-run() { "$bin" "$@" > "$out/$name.txt" 2>&1; }
+# run NAME ARGS...: one check in the background, at most JOBS at a time
+run() {
+  local name=$1
+  shift
+  while [ "$(jobs -r | wc -l)" -ge "$jobs" ]; do wait -n; done
+  "$bin" "$@" > "$out/$name.txt" 2>&1 &
+}
 for path in "$corpus"/*.fdr; do
   f=$(basename "$path" .fdr)
-  name=$f.gen; run "$path" &
-  name=$f.free; run --free "$path" &
+  run "$f.gen" "$path"
+  run "$f.free" --free "$path"
   for ((seed = 1; seed <= runs; seed++)); do
-    name=$f.fuzz$seed; run --free --fuzz $seed "$path" &
-    name=$f.approach$seed; run --free --approach $seed --fuzz $seed "$path" &
-    while [ "$(jobs -r | wc -l)" -ge "$jobs" ]; do wait -n; done
+    run "$f.fuzz$seed" --free --fuzz $seed "$path"
+    run "$f.approach$seed" --free --approach $seed --fuzz $seed "$path"
   done
-  while [ "$(jobs -r | wc -l)" -ge "$jobs" ]; do wait -n; done
 done
 wait
 grep -h -E '^[a-z_.]+ +[0-9]+ +[1-9]' "$out"/*.txt | awk '{n[$1]+=$3; r[$1]++; if ($NF > m[$1]) m[$1] = $NF} END {for (k in n) printf "%-30s %9d mismatching steps in %d runs, max |diff| %s\n", k, n[k], r[k], m[k]}' | sort
