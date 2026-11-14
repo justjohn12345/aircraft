@@ -215,3 +215,35 @@ FMS `backbeam_selected` only inverts the localizer deviation in input conditioni
    rudder control. ALIGN is not a latch: it is LAND below 30 ft.
 10. **No LOC back course**: `loc_bc_selection` is constant false.
 11. **RWY uses the ROLL_OUT law**, LAND the LOC_TRACK law; ROLL OUT is not counted in `any_lateral_mode_engaged`.
+
+## Verification (2026-11-14)
+
+`JOBS=6 scripts/check-vertical-corpus.sh 3`: 22 recordings × (resync, free, 3 × fuzz, free+fuzz, approach, lateral,
+approach+lateral) = 374 runs, 0 mismatches on every vertical and lateral signal and on `active_lateral_law`.
+
+The recordings alone fly mostly NAV (RWY TRK, the preset and LOC arming by the LOC button never occur); the lateral
+scenario (`--lateral`, `src/scenario_lateral.h`) brings every lateral signal and every law value to hundreds or
+thousands of engagements. Still thin: ROLL OUT (≈15 engagements per corpus run, only with the approach scenario).
+Never true: `loc_bc_selection` (constant).
+
+Mutation test (throwaway generator over `lateral_modes.cpp`: `&&`/`||` swaps, dropped `!`, comparison strictness and
+direction, constants ×1.25 / ×0.8 / ±1 bit, edge-detector and monostable flags, stuck-at true/false on every input and
+named condition): 1049 compiling, non-identical mutants, 1015 killed (96.8 %; 98.4 % excluding the provably
+equivalent ones). The 34 survivors:
+
+- **Equivalent (18)**: float compared with a non-representable double (0.4, 1.92, 1.1, 0.16) so `<` = `<=`;
+  `|x|` of ±0; `d < 0` after the `d == 0` branch; course error exactly ±180° (outside 115°); `|roll| <= 5` vs `< 5`
+  (both branches give true); the flap handle is an integer (≥ 0.8 = ≥ 1); a set term that also resets (localizer
+  invalid in RWY, `!guidedOrLow` in the preset, no flight plan in NAV armed: reset wins); `dual_ra_failure` terms
+  (both RAs failed means the raw radio height is 2500 ft); `bankReached` stuck true inside the wide-capture term
+  (the close capture cannot hold above 25°); `any_lateral_mode_engaged` at an AP/FD engagement edge (modes are held
+  reset while no AP/FD is engaged); the bool of `ActiveLateralLaw` (the enum is compared).
+- **Measure-zero equalities (2)**: `|Phi_loc_c| > 5` and `|Phi_loc_c| >= |roll|` need a double outer-loop command
+  exactly equal to 5 or to the float roll.
+- **Transition frames only (8)**: terms that need NAV together with RWY / GA TRK / LOC* / LOC / LAND, LOC* together
+  with LAND, or LOC armed together with LAND in the same previous frame; these overlap only for the one frame of a
+  takeover.
+- **Uncovered (6)**: RWY's own 30 s on-ground timer (redundant with SRS takeoff's unless on-ground drops after SRS
+  engages); the opposite BSCU alone valid at touchdown; the monostables on SRS go-around being retriggerable (needs
+  SRS G/A to re-engage within 0.72 s, only via opposite-FMGC sync); LAND engaging without LAND armed (only via
+  opposite-FMGC sync) for LOC arming; TCAS active at an AP/FD engagement (roll FD bars).
