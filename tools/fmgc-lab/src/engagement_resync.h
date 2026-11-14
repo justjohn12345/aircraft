@@ -55,4 +55,6 @@ inline void resyncEngagement(fmgc::readable::engagement::State& s, const FmgcCom
   mono(s.modeReversion1s, pre.sf_MATLABFunction_hdx);
   edge(s.pitchBarsApFdEngage, pre.sf_MATLABFunction_h0);
   mono(s.pitchBarsFlash10s, pre.sf_MATLABFunction_ppo);
+  s.land3FailOpHeld = pre.pLand3FailOp;
+  s.land3FailPassiveHeld = pre.pLand3FailPass;
 }

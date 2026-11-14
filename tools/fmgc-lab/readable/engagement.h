@@ -6,7 +6,7 @@
 // behaviour: must reproduce the generated FmgcComputer exactly (checked by src/check_engagement.cpp); fixes belong on
 // personal/fmgc-fixes. Spec: docs/modes/engagement.md.
 //
-// Two stages, at their places in the generated step():
+// Three stages, at their places in the generated step():
 //   - engagement (generated FmgcComputer.cpp 1380–1559): the AP/FD/A/THR common conditions, FD engaged, the AP engage
 //     request and AP engaged latches, the A/THR inhibit (instinctive disconnect held 15 s) and A/THR engaged latches,
 //     AP and A/THR inop, opposite-FMGC priority and mode synchronisation, any AP/FD engaged and the mode reset. It runs
@@ -15,8 +15,11 @@
 //     FD only), V/S-FPA target not held (AP at VLS/VMAX), the AP/FD mode reversion pulse (triple click) and the pitch FD
 //     bars flashing. It reads this frame's vertical and lateral modes. (The roll FD bars flashing, generated alongside,
 //     is in the lateral stage: lateral_modes.cpp.)
+//   - landing capability (generated 3796–3863, after the law selection; engagement_land.cpp): LAND 2 / LAND 3 FAIL
+//     PASSIVE / LAND 3 FAIL OP capability (with the AP in LAND), inop (equipment missing) and capacity (own, or the
+//     opposite FMGC's when it is master).
 //
-// Not here: the landing capability (LAND 2 / LAND 3, generated 3796–3863), the A/THR modes (athr_modes.cpp).
+// Not here: the A/THR modes (athr_modes.cpp).
 
 #pragma once
 
@@ -47,6 +50,17 @@ enum Field : int {
   VsTargetNotHeld,                 // ap_fd_logic.vs_target_not_held
   ApFdModeReversion,               // ap_fd_logic.ap_fd_mode_reversion
   PitchFdBarsFlashing,             // ap_fd_logic.pitch_fd_bars_flashing
+  kStage2End,
+  // stage 3: ap_fd_logic bus
+  Land2Capability = kStage2End,  // ap_fd_logic.land_2_capability
+  Land3FailPassiveCapability,    // ap_fd_logic.land_3_fail_passive_capability
+  Land3FailOpCapability,         // ap_fd_logic.land_3_fail_op_capability
+  Land2Inop,                     // ap_fd_logic.land_2_inop
+  Land3FailPassiveInop,          // ap_fd_logic.land_3_fail_passive_inop
+  Land3FailOpInop,               // ap_fd_logic.land_3_fail_op_inop
+  Land2Capacity,                 // ap_fd_logic.land_2_capacity
+  Land3FailPassiveCapacity,      // ap_fd_logic.land_3_fail_passive_capacity
+  Land3FailOpCapacity,           // ap_fd_logic.land_3_fail_op_capacity
   kFieldCount
 };
 const char* fieldName(int field);
@@ -71,6 +85,7 @@ struct Stage2Inputs {
   const base_fmgc_logic_outputs& logic;
   const base_fmgc_ap_fd_logic_outputs& modes;  // this frame's modes and reversions (vertical and lateral stages)
 };
+using Stage3Inputs = Stage2Inputs;
 
 /**
  * Block memories, named after what they hold, with the generated counterpart in brackets (D_Work_FmgcComputer_T). The
@@ -107,6 +122,9 @@ struct State {
   blocks::Monostable modeReversion1s;      // 1 s AP/FD mode reversion pulse                    [sf_MATLABFunction_hdx]
   blocks::EdgeDetector pitchBarsApFdEngage;  // first AP or FD engaged                          [sf_MATLABFunction_h0]
   blocks::Monostable pitchBarsFlash10s;    // 10 s of pitch FD bars flashing                    [sf_MATLABFunction_ppo]
+  // Stage 3: LAND 3 capabilities frozen below 100 ft RA
+  bool land3FailOpHeld = false;            // LAND 3 FAIL OP held                               [pLand3FailOp]
+  bool land3FailPassiveHeld = false;       // LAND 3 FAIL PASSIVE held                          [pLand3FailPass]
 };
 
 /** Intermediate conditions of the last update, for the checker's coverage report (not outputs). */
@@ -143,6 +161,12 @@ enum Condition : int {
   CondFdDisengageDescent,   // ... descent mode below VLS - 2
   CondVsNotHeldLow,         // V/S-FPA target not held near VLS
   CondVsNotHeldHigh,        // ... near VMAX
+  CondLandOwnAp,            // own AP engaged with LAND armed or engaged
+  CondLandOppAp,            // opposite AP engaged with LAND armed or engaged (opposite bus)
+  CondLand3FailOpHeld,      // LAND 3 FAIL OP frozen below 100 ft
+  CondLand3FailPassiveHeld, // LAND 3 FAIL PASSIVE frozen below 100 ft
+  CondLandCapacityOwn,      // capacity from this FMGC's own capability
+  CondLandCapacityOpp,      // capacity from the opposite FMGC's bus
   kConditionCount
 };
 const char* conditionName(int c);
@@ -162,6 +186,9 @@ class Engagement {
    * the generated ones in resync mode).
    */
   void updateFdFlags(const Stage2Inputs& in, Outputs& out);
+
+  /** Stage 3: fills the landing capability fields of out. Reads this frame's stage-1 outputs from out. */
+  void updateLandCapability(const Stage3Inputs& in, Outputs& out);
 
   State& state() { return s_; }
 
