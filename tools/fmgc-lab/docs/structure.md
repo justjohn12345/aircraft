@@ -85,3 +85,12 @@ energy rate, ≥ 120 ft/min towards the altitude target). SRS: 18° pitch limit 
 Corrections from the ALT*/ALT rewrite: the ALT_HOLD AP command is computed at 4304 (vsLimit(0.7 × FD)); the ALT*
 speed laws start at 2951 (2815–2950 fills a bus structure); the ALT hold target is frozen while ALT_HOLD is active and
 set to 0 only at power-up (init), not on reset.
+Corrections from the lateral mode rewrite (`docs/modes/lateral.md`): 1722–1793 RWY (c), RWY TRK (b) and `rwy_active`
+(c || b, 1793); 1894–1912 ROLL OUT (m) and ALIGN (combinational, LAND below 30 ft RA with FAC rudder control);
+2029–2052 GA TRK (el); 2054–2101 the lateral mode reversion (output 4035, `rtb_y_o` from 2141), feeding the HDG/TRK
+latch (dy, 2129; hdg/trk split at 2139–2140 by FCU word 1 bit 24); 2143–2183 NAV armed (j, reads this frame's FINAL
+armed dv); 2184–2214 NAV (ly); 2215–2241 LOC armed (a); 2257–2374 LOC* (cv: capture geometry from the memorised
+runway course `rwy_hdg_memo` = `FmgcComputer_B.u_lyjj`, IR roll and the outer loops' previous `Phi_loc_c`); 2375–2404
+LOC (lq). The roll FD bars flashing monostable is at 3392–3404, the HDG/TRK preset (bw) at 3405–3434,
+`any_lateral_mode_engaged` at 3736. `lateral_mode_reset` and `longitudinal_mode_reset` are the same signal (1553).
+`loc_bc_selection` is a constant (false). FCU word 2 bits: 11 HDG/TRK knob pushed, 12 pulled, 13 LOC pushed.
