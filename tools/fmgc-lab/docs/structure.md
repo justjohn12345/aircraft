@@ -85,3 +85,11 @@ energy rate, ≥ 120 ft/min towards the altitude target). SRS: 18° pitch limit 
 Corrections from the ALT*/ALT rewrite: the ALT_HOLD AP command is computed at 4304 (vsLimit(0.7 × FD)); the ALT*
 speed laws start at 2951 (2815–2950 fills a bus structure); the ALT hold target is frozen while ALT_HOLD is active and
 set to 0 only at power-up (init), not on reset.
+Corrections from the lateral rewrite (`docs/laws/lateral.md`): the lateral block is 2232–2750: bank limit 2232–2271
+(computed first), NAV feedforward 2276–2289, HDG 2290–2330, LOC_CPT and Phi_loc_c 2331–2370, LOC_TRACK filters and
+runway alignment 2371–2412, TRACK 2412–2442, roll law switch 2443–2531 (HPATH and LOC_TRACK are computed inside their
+cases), FD roll 2532–2540, ROLL_OUT 2541–2626, sideslip and nosewheel switches 2627–2716, AP roll 2718–2750. The
+100-sample delays Delay_DSTATE_l4/_n (shifted at 4566–4572) detect the first second of HDG / TRACK (the turn is then
+always the shorter way); Delay_DSTATE (no suffix) is LOC_TRACK's deviation derivative, Delay_DSTATE_p the ROLL_OUT
+deviation integral, Delay_DSTATE_f/icLoad the AP roll integrator. FD and AP share one roll command per law; FD β is the
+lag of AP β. The RWY LOC submode selects the ROLL_OUT law.

@@ -128,7 +128,7 @@ class LateralLaws {
   /** Every lateral law's commands for this step, plus Phi_loc_c. */
   void computeLaws(const ap_laws_output& in, LateralResults& out);
 
-  /** Output stage: picks in.input.lateral_law's commands. Returns false if a selected command is NaN (not rewritten). */
+  /** Output stage: picks in.input.lateral_law's commands. Returns false if a selected command is NaN. */
   bool computeOutputs(const ap_laws_output& in, const LateralCommand (&cmd)[kLateralLawCount], LateralOutputs& out);
 
  private:
