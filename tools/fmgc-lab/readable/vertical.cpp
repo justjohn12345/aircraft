@@ -7,25 +7,30 @@
 namespace fmgc::readable {
 
 const char* signalName(Signal s) {
-  static const char* names[kSignalCount] = {
-      "SrsTakeoff", "LandArmed", "Land",      "FlareMemory", "FinalArmed",  "Final",          "SrsGoAround",
-      "AltArmPossible", "AltArmed", "AltCapture", "AltHold", "AltCruiseMemory", "AltCruise", "ReversionVs",
-      "VsFpa", "ClbArmed", "Clb", "DesArmed", "Des", "OpClb", "ReversionOpClb", "OpDes", "ExpClb", "ExpDes",
-      "GlideArmed", "GsCapture", "GsTrack", "TcasArmed", "Tcas", "TcasAltAcq", "TcasAltHold", "AltSoft", "VsActive",
-      "FpaActive", "Flare"};
+  static const char* const names[] = {
+      "SrsTakeoff", "RwyLoc", "RwyTrk", "RwyActive", "LandArmed", "Land", "RollOut", "Align", "FlareMemory",
+      "FinalArmed", "Final", "SrsGoAround", "GaTrk", "LateralReversion", "HdgTrk", "HdgActive", "TrkActive",
+      "NavArmed", "Nav", "LocArmed", "LocCapture", "LocTrack", "AltArmPossible", "AltArmed", "AltCapture", "AltHold",
+      "AltCruiseMemory", "AltCruise", "ReversionVs", "VsFpa", "ClbArmed", "Clb", "DesArmed", "Des", "OpClb",
+      "ReversionOpClb", "OpDes", "ExpClb", "ExpDes", "GlideArmed", "GsCapture", "GsTrack", "TcasArmed", "Tcas",
+      "TcasAltAcq", "TcasAltHold", "RollFdBarsFlashing", "HdgTrkPreset", "AltSoft", "AnyLateralMode",
+      "ActiveLateralLaw", "VsActive", "FpaActive", "Flare", "LocBcSelection"};
+  static_assert(sizeof(names) / sizeof(names[0]) == kSignalCount, "one name per signal");
   return names[static_cast<std::size_t>(s)];
 }
 
 void VerticalModeLogic::reset(Signals& s) {
   s = Signals{};
   resetApproach(s);
+  resetLateral(s);
   resetAlt(s);
   resetVsTcas(s);
   resetClimbDescent(s);
 }
 
 bool VerticalModeLogic::update(Signal id, const Frame& f, Signals& s) {
-  return updateApproach(id, f, s) || updateAlt(id, f, s) || updateVsTcas(id, f, s) || updateClimbDescent(id, f, s);
+  return updateApproach(id, f, s) || updateLateral(id, f, s) || updateAlt(id, f, s) || updateVsTcas(id, f, s) ||
+         updateClimbDescent(id, f, s);
 }
 
 bool anyOtherVerticalModeLast(const base_fmgc_ap_fd_logic_outputs& last, Signal except) {
