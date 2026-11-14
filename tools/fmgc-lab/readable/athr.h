@@ -55,8 +55,26 @@ struct Result {
 
 /** Mode-stage state: latches (SR flip-flops) and other memories, named after what they hold. */
 struct ModesState {
-  // filled in by the modes rewrite
-  bool placeholder = false;
+  // TCAS: holds the A/THR in its pre-RA thrust behaviour (inhibits alpha floor) from TCAS mode engagement until the
+  // pilot retards a lever (after 5 s) or TCAS mode ends.
+  blocks::ConfirmNode tcasActiveFor5s;   // TCAS mode active for 5 s            (sf_MATLABFunction_a)
+  blocks::EdgeDetector tcasEngagePulse;  // TCAS mode engagement               (sf_MATLABFunction_g)
+  blocks::SrLatch tcasLatch;             //                                     (Memory_PreviousInput_jb)
+  // Alpha floor
+  blocks::EdgeDetector alphaFloorRequestPulse;  // FAC alpha floor request rising edge (sf_MATLABFunction_k)
+  blocks::SrLatch alphaFloor;                    // A.FLOOR / TOGA LK                   (Memory_PreviousInput_hu)
+  // Thrust modes: each set by a vertical law engagement (or the opposite FMGC), reset by another thrust mode
+  blocks::EdgeDetector thrustLawPulse;   // THR law (SPD/MACH on pitch, SRS, VPATH thrust) engaged (sf_MATLABFunction_j)
+  blocks::ConfirmNode thrustSetRecent;   // THR set condition true within the last 0.72 s         (sf_MATLABFunction_ay)
+  blocks::SrLatch thrustMode;            // THR mode                                              (Memory_PreviousInput_bh)
+  blocks::EdgeDetector speedLawPulse;    // SPEED law (pitch flies a path or altitude) engaged     (sf_MATLABFunction_ge)
+  blocks::ConfirmNode speedSetRecent;    //                                                       (sf_MATLABFunction_ig)
+  blocks::SrLatch speedMode;             // SPEED/MACH mode                                       (Memory_PreviousInput_cm)
+  blocks::ConfirmNode retardSetRecent;   //                                                       (sf_MATLABFunction_kh)
+  blocks::SrLatch retardMode;            // RETARD mode                                           (Memory_PreviousInput_ol)
+  // Lever messages
+  blocks::SrLatch lvrClbArmed;  // above thrust reduction altitude, both engines: LVR CLB possible (Memory_PreviousInput_kr)
+  blocks::SrLatch lvrMctArmed;  // same with one engine out: LVR MCT possible                      (Memory_PreviousInput_km)
 };
 
 /**

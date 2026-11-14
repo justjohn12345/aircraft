@@ -1,6 +1,8 @@
 #!/bin/bash
 # Runs the readable autothrust check over every recording: resync, free-running, and N fuzzed runs per file
-# (plus N with synthetic approaches, src/scenario_approach.h, for LAND, FLARE and RETARD).
+# (plus N with synthetic approaches, src/scenario_approach.h, for LAND, FLARE and RETARD, and 3N with synthetic
+# autothrust episodes, src/scenario_athr.h: thrust levers, FLEX, engine out, alpha floor, TCAS RA, A/THR push,
+# opposite FMGC in control; alone, free-running with the fuzzer, and with the approaches).
 # The generated stock model is the oracle, so every recording works whatever build flew it.
 # Usage: scripts/check-athr-corpus.sh [fuzz runs per file, default 3] [binary, default build/fmgc-check-athr-stock]
 set -uo pipefail
@@ -23,6 +25,9 @@ for path in "$corpus"/*.fdr; do
     "$bin" --fuzz $seed "$path" > "$out/$f.fuzz$seed.txt" 2>&1 &
     "$bin" --free --fuzz $seed "$path" > "$out/$f.free-fuzz$seed.txt" 2>&1 &
     "$bin" --approach $seed --fuzz $seed "$path" > "$out/$f.approach$seed.txt" 2>&1 &
+    "$bin" --athr $seed "$path" > "$out/$f.athr$seed.txt" 2>&1 &
+    "$bin" --free --athr $seed --fuzz $((seed + 100)) "$path" > "$out/$f.free-athr$seed.txt" 2>&1 &
+    "$bin" --athr $((seed + 200)) --approach $seed "$path" > "$out/$f.athr-approach$seed.txt" 2>&1 &
   done
   while [ "$(jobs -r | wc -l)" -ge "${JOBS:-$(nproc)}" ]; do wait -n; done
 done
@@ -32,6 +37,8 @@ grep -h -E '^[a-z0-9_]+ +(yes|no) ' "$out"/*.txt | awk '{t[$1]+=$9; r[$1]+=$10} 
 # FMA values seen (generated), over all runs
 grep -h '^fma_mode steps:' "$out"/*.txt | tr ' ' '\n' | grep ':' | grep -v steps | awk -F: '{n[$1]+=$2} END {for (k in n) printf "fma_mode %s: %d steps\n", k, n[k]}' | sort -t' ' -k2 -n
 grep -h '^fma_message steps:' "$out"/*.txt | tr ' ' '\n' | grep ':' | grep -v steps | awk -F: '{n[$1]+=$2} END {for (k in n) printf "fma_message %s: %d steps\n", k, n[k]}' | sort -t' ' -k2 -n
+# input conditions seen (generated), over all runs
+grep -h '^conditions:' "$out"/*.txt | tr ' ' '\n' | grep ':' | grep -v conditions | awk -F: '{n[$1]+=$2} END {for (k in n) printf "condition %s: %d steps\n", k, n[k]}' | sort
 # fields with mismatches, over all runs
 grep -h -E '^[a-z0-9_]+ +yes +[1-9]' "$out"/*.txt | awk '{n[$1]+=$3; r[$1]++} END {for (k in n) printf "%-24s %8d mismatching steps in %d runs\n", k, n[k], r[k]}' | sort
 total=$(ls "$out"/*.txt | wc -l)
