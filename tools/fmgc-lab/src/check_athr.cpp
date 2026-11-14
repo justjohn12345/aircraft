@@ -31,6 +31,7 @@
 #include "input_fuzzer.h"
 #include "replay_core.h"
 #include "scenario_approach.h"
+#include "scenario_athr.h"
 
 namespace A = fmgc::readable::athr;
 using DWork = FmgcComputer::D_Work_FmgcComputer_T;
@@ -93,7 +94,7 @@ struct Stats {
 
 int main(int argc, char** argv) {
   bool freeRunning = false;
-  long fuzzSeed = -1, approachSeed = -1;
+  long fuzzSeed = -1, approachSeed = -1, athrSeed = -1;
   std::string path;
   for (int i = 1; i < argc; i++) {
     std::string a = argv[i];
@@ -103,6 +104,8 @@ int main(int argc, char** argv) {
       fuzzSeed = std::atol(argv[++i]);
     } else if (a == "--approach" && i + 1 < argc) {
       approachSeed = std::atol(argv[++i]);
+    } else if (a == "--athr" && i + 1 < argc) {
+      athrSeed = std::atol(argv[++i]);
     } else if (path.empty() && !a.empty() && a[0] != '-') {
       path = a;
     } else {
@@ -111,7 +114,7 @@ int main(int argc, char** argv) {
     }
   }
   if (path.empty()) {
-    std::fprintf(stderr, "usage: fmgc-check-athr [--free] [--fuzz SEED] [--approach SEED] <file.fdr>\n");
+    std::fprintf(stderr, "usage: fmgc-check-athr [--free] [--fuzz SEED] [--approach SEED] [--athr SEED] <file.fdr>\n");
     return 2;
   }
 
@@ -130,6 +133,10 @@ int main(int argc, char** argv) {
   if (approachSeed >= 0) {
     scenario = std::make_unique<ApproachScenario>(static_cast<uint64_t>(approachSeed));
   }
+  std::unique_ptr<AthrScenario> athrScenario;
+  if (athrSeed >= 0) {
+    athrScenario = std::make_unique<AthrScenario>(static_cast<uint64_t>(athrSeed));
+  }
 
   auto pre = std::make_unique<DWork>();
   A::Autothrust athr;
@@ -138,11 +145,15 @@ int main(int argc, char** argv) {
   bool haveLastReadable = false;
   Stats stats[A::kFieldCount];
   std::map<int, long> fmaModeSteps, fmaMessageSteps;  // coverage of the generated FMA values
+  std::map<std::string, long> conditionSteps;          // coverage of autothrust input conditions
   long steps = 0, checkedSteps = 0;
 
   replayer.beforeStep = [&]() {
     if (scenario) {
       scenario->apply(replayer.mutableInputs(), replayer.inputs().time.dt);
+    }
+    if (athrScenario) {
+      athrScenario->apply(replayer.mutableInputs(), replayer.inputs().time.dt);
     }
     if (fuzzer) {
       fuzzer->apply(replayer.mutableInputs(), replayer.inputs().time.dt);
@@ -216,6 +227,30 @@ int main(int argc, char** argv) {
       copyField(r.out, gen, A::N1Command);
     }
     fmaModeSteps[static_cast<int>(gen.fma_mode)]++;
+    {
+      namespace a429 = fmgc::blocks::a429;
+      const auto& lg = out.logic;
+      const auto& ap = out.ap_fd_logic;
+      const auto& fa = out.data.bus_inputs;
+      auto cover = [&](const char* name, bool c) { conditionSteps[name] += c; };
+      bool engaged = lg.athr_own_engaged;
+      cover("athr_engaged", engaged);
+      cover("opp_mode_sync", ap.fmgc_opp_mode_sync);
+      cover("opp_sync_engaged", ap.fmgc_opp_mode_sync && engaged);
+      cover("one_engine_out", lg.one_engine_out);
+      cover("oei_engaged", lg.one_engine_out && engaged);
+      cover("tcas_active", ap.longitudinal_modes.tcas_active);
+      cover("tcas_engaged", ap.longitudinal_modes.tcas_active && engaged);
+      cover("tcas_climb_ra", ap.longitudinal_modes.tcas_active && ap.tcas_vs_target > 500);
+      cover("fac_alpha_floor", a429::bit(lg.chosen_fac_bus.discrete_word_5, 29) != 0);
+      cover("flex_set", a429::isNormal(fa.fadec_own_bus.selected_flex_temp_deg) ||
+                            a429::isNormal(fa.fadec_opp_bus.selected_flex_temp_deg));
+      cover("tla_ssm_not_normal", !a429::isNormal(fa.fadec_own_bus.selected_tla_deg) ||
+                                      !a429::isNormal(fa.fadec_opp_bus.selected_tla_deg));
+      cover("land_ap_engaged", ap.lateral_modes.land_active && lg.ap_own_engaged);
+      cover("on_ground_engaged", lg.on_ground && engaged);
+      cover("goaround_phase", out.data.fms_inputs.fms_flight_phase == fmgc_flight_phase::Goaround);
+    }
     fmaMessageSteps[static_cast<int>(gen.fma_message)]++;
     lastReadable = r.out;
     haveLastReadable = true;
@@ -232,6 +267,9 @@ int main(int argc, char** argv) {
   }
   if (scenario) {
     mode += ", approach scenarios (seed " + std::to_string(approachSeed) + ")";
+  }
+  if (athrScenario) {
+    mode += ", autothrust scenarios (seed " + std::to_string(athrSeed) + ")";
   }
   std::printf("file     %s\nmode     %s\nsteps    %ld (%ld checked, computer running)\n", path.c_str(), mode.c_str(),
               steps, checkedSteps);
@@ -253,6 +291,10 @@ int main(int argc, char** argv) {
   std::printf("\nfma_message steps:");
   for (auto& [v, n] : fmaMessageSteps) {
     std::printf(" %d:%ld", v, n);
+  }
+  std::printf("\nconditions:");
+  for (auto& [k, n] : conditionSteps) {
+    std::printf(" %s:%ld", k.c_str(), n);
   }
   std::printf("\n\n%ld fields rewritten, %ld with mismatches\n", implemented, failing);
   return failing == 0 ? 0 : 1;
