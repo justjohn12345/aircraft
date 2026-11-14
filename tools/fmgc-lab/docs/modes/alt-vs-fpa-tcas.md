@@ -317,6 +317,10 @@ decided by which set condition stays true longer (inferred; see the CLB doc). Th
 
 ## alt_cstr_applicable / alt_sel_or_cstr  (FmgcComputer.cpp:1640–1664, outputs 4018–4019)
 
+Readable: `readable/vertical_alt.cpp`, signals `AltCstrApplicable` and `AltSelOrCstr` (the first two of the vertical
+update order, value in `Signals::altSelOrCstr`); compared by `check_vertical` like every other signal (the target
+bit-exact as a double), 0 mismatches over the 374-run corpus check.
+
 ```
 capturingCst = (ALT*_last ∨ ALT_last) ∧ alt_cstr_applicable_last
              ∧ (NAV ∨ LOC* ∨ LOC)_last ∧ fms.vertical_flight_plan_valid                       (1640–1646)

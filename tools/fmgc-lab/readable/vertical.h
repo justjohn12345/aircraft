@@ -29,6 +29,8 @@ namespace fmgc::readable {
 
 /** In the order the generated step() updates them (FmgcComputer.cpp line in brackets). */
 enum class Signal : int {
+  AltCstrApplicable,  // [1659] alt_cstr_applicable: the FMS altitude constraint is the altitude target (combinational)
+  AltSelOrCstr,     // [1664] alt_sel_or_cstr (value in Signals::altSelOrCstr; the bool is target != 0)
   SrsTakeoff,       // [1696] longitudinal_modes.pitch_takeoff_active
   RwyLoc,           // [1754] lateral_modes.rwy_loc_submode_active (RWY)
   RwyTrk,           // [1782] lateral_modes.rwy_trk_submode_active (RWY TRK)
@@ -93,6 +95,7 @@ const char* signalName(Signal s);
 struct Signals {
   std::array<bool, kSignalCount> v{};
   lateral_law activeLateralLaw = lateral_law::NONE;  // Signal::ActiveLateralLaw
+  double altSelOrCstr = 0;  // Signal::AltSelOrCstr: constraint altitude if applicable, else FCU altitude (ft)
   bool& operator[](Signal s) { return v[static_cast<std::size_t>(s)]; }
   bool operator[](Signal s) const { return v[static_cast<std::size_t>(s)]; }
 };
@@ -108,10 +111,6 @@ struct External {
   bool oppModeSync = false;     // fmgc_opp_mode_sync: this FMGC copies the opposite FMGC's modes
   bool anyApFdEngaged = false;  // any_ap_fd_engaged: own or opposite AP or FD engaged
   bool modeReset = false;       // longitudinal_mode_reset: no AP/FD engaged, or first engine start on the ground
-
-  // Altitude target (computed at FmgcComputer.cpp 1636–1664, to be rewritten with the V/S-TCAS group)
-  bool altCstrApplicable = false;  // alt_cstr_applicable: the FMS altitude constraint is the target
-  double altSelOrCstr = 0;         // alt_sel_or_cstr: constraint altitude if applicable, else FCU altitude (ft)
 
   // TCAS
   double tcasVsTarget = 0;        // tcas_vs_target (fpm)

@@ -103,6 +103,7 @@ boolean_T* outputOf(base_fmgc_ap_fd_logic_outputs& o, Signal s) {
   auto& a = o.armed_modes;
   auto& l = o.lateral_modes;
   switch (s) {
+    case Signal::AltCstrApplicable: return &o.alt_cstr_applicable;
     case Signal::SrsTakeoff: return &m.pitch_takeoff_active;
     case Signal::RwyLoc: return &l.rwy_loc_submode_active;
     case Signal::RwyTrk: return &l.rwy_trk_submode_active;
@@ -163,6 +164,9 @@ bool generatedValue(const DWork& post, const fmgc_outputs& out, Signal s) {
   if (s == Signal::ActiveLateralLaw) {
     return out.ap_fd_logic.active_lateral_law != lateral_law::NONE;
   }
+  if (s == Signal::AltSelOrCstr) {
+    return out.ap_fd_logic.alt_sel_or_cstr != 0.0;
+  }
   auto o = out.ap_fd_logic;
   boolean_T* field = outputOf(o, s);
   return field ? *field : false;
@@ -174,8 +178,6 @@ void fillExternal(External& e, const fmgc_outputs& out, const DWork& pre, const 
   e.oppModeSync = out.ap_fd_logic.fmgc_opp_mode_sync;
   e.anyApFdEngaged = out.ap_fd_logic.any_ap_fd_engaged;
   e.modeReset = out.ap_fd_logic.longitudinal_mode_reset;
-  e.altCstrApplicable = out.ap_fd_logic.alt_cstr_applicable;
-  e.altSelOrCstr = out.ap_fd_logic.alt_sel_or_cstr;
   e.tcasVsTarget = out.ap_fd_logic.tcas_vs_target;
   e.tcasRaCorrective = out.ap_fd_logic.tcas_ra_corrective;
   e.tcasModeAvailable = out.logic.tcas_mode_available;
@@ -306,6 +308,9 @@ int main(int argc, char** argv) {
       if (stats[static_cast<size_t>(Signal::ActiveLateralLaw)].implemented) {
         last.active_lateral_law = lastReadable.activeLateralLaw;
       }
+      if (stats[static_cast<size_t>(Signal::AltSelOrCstr)].implemented) {
+        last.alt_sel_or_cstr = lastReadable.altSelOrCstr;
+      }
     }
 
     External ext;
@@ -333,6 +338,14 @@ int main(int argc, char** argv) {
         prevLaw = generatedLaw;
         if (!freeRunning) {
           s.activeLateralLaw = generatedLaw;
+        }
+      }
+      if (id == Signal::AltSelOrCstr) {
+        // value-valued: compared bit-exact (the bool is target != 0)
+        const double generatedTarget = out.ap_fd_logic.alt_sel_or_cstr;
+        mismatch = std::memcmp(&s.altSelOrCstr, &generatedTarget, sizeof(double)) != 0;
+        if (!freeRunning) {
+          s.altSelOrCstr = generatedTarget;
         }
       }
       if (mismatch) {
