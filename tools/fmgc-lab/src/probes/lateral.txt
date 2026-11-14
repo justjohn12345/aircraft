@@ -1,0 +1,31 @@
+# Lateral law probes (readable/laws_lateral.cpp). Stock line numbers. P. = FmgcOuterLoops_rtP.
+# Each lateral law's commands as the three lateral law switches select them; every law is computed every frame, so
+# these are valid whichever law is active. HPATH, LOC_TRACK and the ROLL_OUT yaw command are computed inside their
+# switch case, so their probes repeat the case's arithmetic (without its side effects) in a lambda.
+#
+# Roll command (phi, deg) before the bank limit (switch at 2443).
+BEFORE 2443 lat.phi.none *rtu_in_data_Phi_deg
+BEFORE 2443 lat.phi.hdg (rtb_Sum_iv > rtb_Y_f2 ? rtb_Y_f2 : (rtb_Sum_iv < rtb_lo_n ? rtb_lo_n : rtb_Sum_iv))
+BEFORE 2443 lat.phi.track (rtb_Mod2 > external_limit ? external_limit : (rtb_Mod2 < rtb_Mod2_e ? rtb_Mod2_e : rtb_Mod2))
+BEFORE 2443 lat.phi.hpath [&]() { real_T x = P.Gain_Gain_p * *rtu_in_data_fms_xtk_nmi * rtb_k1 / *rtu_in_data_V_gnd_kn; if (x > P.Saturation_UpperSat) { x = P.Saturation_UpperSat; } else if (x < P.Saturation_LowerSat) { x = P.Saturation_LowerSat; } return r - (P.Gain2_Gain * *rtu_in_data_fms_tae_deg + x) * rtb_k2 * *rtu_in_data_V_gnd_kn; }()
+BEFORE 2443 lat.phi.loc_cpt *rty_out_Phi_loc_c
+BEFORE 2443 lat.phi.loc_track [&]() { real_T a = rt_modd((*rtu_in_data_Psi_magnetic_deg - (*rtu_in_data_Psi_true_deg + P.Constant3_Value)) + P.Constant3_Value, P.Constant3_Value); real_T b = rt_modd(P.Constant3_Value - a, P.Constant3_Value); real_T g = a < b ? P.Gain1_Gain_k * a : P.Gain_Gain_h * b; a = rt_modd((rt_modd(rt_modd(*rtu_in_data_Psi_magnetic_track_deg + g, P.Constant3_Value_i) + P.Constant3_Value_i, P.Constant3_Value_i) - (rtb_Mod1_ds + P.Constant3_Value_o)) + P.Constant3_Value_o, P.Constant3_Value_o); b = rt_modd(P.Constant3_Value_o - a, P.Constant3_Value_o); real_T y = rtb_Y_ds; if (y > P.Saturation_UpperSat_e) { y = P.Saturation_UpperSat_e; } else if (y < P.Saturation_LowerSat_e) { y = P.Saturation_LowerSat_e; } g = a < b ? P.Gain1_Gain_e * a : P.Gain_Gain_j * b; g = (rtb_MaxH_dot_RA * look1_binlxpw(*rtu_in_data_V_tas_kn, P.ScheduledGain2_BreakpointsForDimension1, P.ScheduledGain2_Table, 6U) * P.Gain4_Gain * look1_binlxpw(*rtu_in_data_H_radio_ft, P.ScheduledGain_BreakpointsForDimension1_f, P.ScheduledGain_Table_e, 5U) + std::sin(P.Gain1_Gain_c * g) * *rtu_in_data_V_gnd_kn * P.Gain2_Gain_n) + (*rtu_in_data_beta_deg * look1_binlxpw(*rtu_in_data_H_radio_ft, P.ScheduledGain1_BreakpointsForDimension1, P.ScheduledGain1_Table, 4U) + rtb_Divide * look1_binlxpw(*rtu_in_data_H_radio_ft, P.ScheduledGain3_BreakpointsForDimension1, P.ScheduledGain3_Table, 5U)); if (g > P.Saturation1_UpperSat) { g = P.Saturation1_UpperSat; } else if (g < P.Saturation1_LowerSat) { g = P.Saturation1_LowerSat; } return (P.Constant_Value - y) * *rty_out_Phi_loc_c + g * y; }()
+BEFORE 2443 lat.phi.roll_out P.Constant3_Value_c
+# Bank limit applied to the selected roll command (rate-limited state), for debugging.
+BEFORE 2532 lat.bank_limit FmgcOuterLoops_DWork.pY_b
+# AP sideslip command (Beta_c, deg) per law (switch at 2627).
+BEFORE 2627 lat.beta.none P.beta_Value
+BEFORE 2627 lat.beta.hdg P.beta_Value_j
+BEFORE 2627 lat.beta.track P.beta_Value_h
+BEFORE 2627 lat.beta.hpath P.beta_Value_jb
+BEFORE 2627 lat.beta.loc_cpt P.beta_Value_k
+BEFORE 2627 lat.beta.loc_track rtb_Divide
+BEFORE 2627 lat.beta.roll_out [&]() { real_T s = rtb_Y_ds > P.Saturation_UpperSat_m ? P.Saturation_UpperSat_m : (rtb_Y_ds < P.Saturation_LowerSat_g ? P.Saturation_LowerSat_g : rtb_Y_ds); return P.Gain7_Gain * r * s + (P.Constant_Value_j - s) * FmgcOuterLoops_DWork.storage_a; }()
+# Nosewheel command per law, before the AP-engaged gate and the -0.04 gain (switch at 2669).
+BEFORE 2668 lat.nose.none P.beta1_Value
+BEFORE 2668 lat.nose.hdg P.beta1_Value_h
+BEFORE 2668 lat.nose.track P.beta1_Value_e
+BEFORE 2668 lat.nose.hpath P.beta1_Value_m
+BEFORE 2668 lat.nose.loc_cpt P.beta1_Value_g
+BEFORE 2668 lat.nose.loc_track P.beta1_Value_b
+BEFORE 2668 lat.nose.roll_out [&]() { real_T s = rtb_Y_ds > P.Saturation_UpperSat_k ? P.Saturation_UpperSat_k : (rtb_Y_ds < P.Saturation_LowerSat_m ? P.Saturation_LowerSat_m : rtb_Y_ds); return P.Gain3_Gain * r * s + (P.Constant_Value_c - s) * FmgcOuterLoops_DWork.storage_a; }()
