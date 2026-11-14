@@ -2,14 +2,16 @@
 //
 // SPDX-License-Identifier: GPL-3.0
 
-// Differential check of the readable vertical mode logic (readable/vertical*.cpp) against the generated FmgcComputer,
-// over a flight data recording. The generated model is the oracle (not the recording), so use the stock variant.
+// Differential check of the readable vertical and lateral mode logic (readable/vertical*.cpp, lateral_modes.cpp)
+// against the generated FmgcComputer, over a flight data recording. The generated model is the oracle (not the recording), so use the stock variant.
 //
 // Modes:
 //   resync (default): every signal starts the frame from the generated value of the previous frame, and after each
 //     readable update the signal is compared and then reset to the generated value, so a mismatch points at exactly
 //     one signal's logic.
 //   --free: the readable logic keeps its own state (its own previous outputs feed `last`), as it would in the sim.
+//   --fuzz SEED, --approach SEED, --lateral SEED: input perturbations (src/input_fuzzer.h, scenario_approach.h,
+//     scenario_lateral.h), combinable.
 // Signals that are not rewritten yet always take the generated value.
 
 #include <chrono>
@@ -29,6 +31,7 @@
 
 #include "input_fuzzer.h"
 #include "scenario_approach.h"
+#include "scenario_lateral.h"
 #include "replay_core.h"
 #include "vertical.h"
 
@@ -200,6 +203,7 @@ int main(int argc, char** argv) {
   bool freeRunning = false;
   long fuzzSeed = -1;
   long approachSeed = -1;
+  long lateralSeed = -1;
   std::string path;
   for (int i = 1; i < argc; i++) {
     std::string a = argv[i];
@@ -209,15 +213,17 @@ int main(int argc, char** argv) {
       fuzzSeed = std::atol(argv[++i]);
     } else if (a == "--approach" && i + 1 < argc) {
       approachSeed = std::atol(argv[++i]);
+    } else if (a == "--lateral" && i + 1 < argc) {
+      lateralSeed = std::atol(argv[++i]);
     } else if (path.empty() && !a.empty() && a[0] != '-') {
       path = a;
     } else {
-      std::fprintf(stderr, "usage: fmgc-check-vertical [--free] [--fuzz SEED] [--approach SEED] <file.fdr>\n");
+      std::fprintf(stderr, "usage: fmgc-check-vertical [--free] [--fuzz SEED] [--approach SEED] [--lateral SEED] <file.fdr>\n");
       return 2;
     }
   }
   if (path.empty()) {
-    std::fprintf(stderr, "usage: fmgc-check-vertical [--free] [--fuzz SEED] [--approach SEED] <file.fdr>\n");
+    std::fprintf(stderr, "usage: fmgc-check-vertical [--free] [--fuzz SEED] [--approach SEED] [--lateral SEED] <file.fdr>\n");
     return 2;
   }
 
@@ -249,9 +255,16 @@ int main(int argc, char** argv) {
   if (approachSeed >= 0) {
     scenario = std::make_unique<ApproachScenario>(static_cast<uint64_t>(approachSeed));
   }
+  std::unique_ptr<LateralScenario> lateralScenario;
+  if (lateralSeed >= 0) {
+    lateralScenario = std::make_unique<LateralScenario>(static_cast<uint64_t>(lateralSeed));
+  }
   replayer.beforeStep = [&]() {
     if (scenario) {
       scenario->apply(replayer.mutableInputs(), replayer.inputs().time.dt);
+    }
+    if (lateralScenario) {
+      lateralScenario->apply(replayer.mutableInputs(), replayer.inputs().time.dt);
     }
     if (fuzzer) {
       fuzzer->apply(replayer.mutableInputs(), replayer.inputs().time.dt);
@@ -353,6 +366,9 @@ int main(int argc, char** argv) {
               steps, checkedSteps);
   if (scenario) {
     std::printf("approach scenario seed %ld\n", approachSeed);
+  }
+  if (lateralScenario) {
+    std::printf("lateral scenario seed %ld\n", lateralSeed);
   }
   std::printf("\n%-18s %6s %9s %10s %10s %10s %6s %10s %7s\n", "signal", "impl", "mismatch", "first", "t_first", "last",
               "gen@1st", "true", "rises");

@@ -1,6 +1,7 @@
 #!/bin/bash
 # Runs the readable vertical logic check over every recording: resync, free-running, and N fuzzed runs per file
-# (plus N with synthetic approaches, src/scenario_approach.h, for G/S, LAND and FLARE).
+# (plus N with synthetic approaches, src/scenario_approach.h, for G/S, LAND and FLARE, and N with synthetic lateral
+# episodes, src/scenario_lateral.h, alone and on top of the approaches). JOBS: parallel runs (default nproc).
 # The generated stock model is the oracle, so every recording works whatever build flew it.
 # Usage: scripts/check-vertical-corpus.sh [fuzz runs per file, default 3] [binary, default build/fmgc-check-vertical-stock]
 set -uo pipefail
@@ -23,12 +24,15 @@ for path in "$corpus"/*.fdr; do
     "$bin" --fuzz $seed "$path" > "$out/$f.fuzz$seed.txt" 2>&1 &
     "$bin" --free --fuzz $seed "$path" > "$out/$f.free-fuzz$seed.txt" 2>&1 &
     "$bin" --approach $seed --fuzz $seed "$path" > "$out/$f.approach$seed.txt" 2>&1 &
+    "$bin" --lateral $seed --fuzz $seed "$path" > "$out/$f.lateral$seed.txt" 2>&1 &
+    "$bin" --free --approach $seed --lateral $((seed + 100)) "$path" > "$out/$f.lateral-approach$seed.txt" 2>&1 &
   done
   while [ "$(jobs -r | wc -l)" -ge "${JOBS:-$(nproc)}" ]; do wait -n; done
 done
 wait
 # coverage: signals never true in any run
 grep -h -E '^[A-Za-z]+ +yes ' "$out"/*.txt | awk '{t[$1]+=$8; r[$1]+=$9} END {for (k in t) if (r[k] == 0) printf "never true: %s\n", k}' | sort
+grep -h '^law ' "$out"/*.txt | awk '{n[$2]+=$3} END {for (k in n) if (n[k] == 0) printf "law never active: %s\n", k}' | sort
 # signals with mismatches, over all runs
 grep -h -E '^[A-Za-z]+ +yes +[1-9]' "$out"/*.txt | awk '{n[$1]+=$3; r[$1]++} END {for (k in n) printf "%-16s %8d mismatching steps in %d runs\n", k, n[k], r[k]}' | sort
 total=$(ls "$out"/*.txt | wc -l)
