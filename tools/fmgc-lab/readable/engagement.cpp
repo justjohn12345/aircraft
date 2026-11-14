@@ -18,22 +18,28 @@
 namespace fmgc::readable::engagement {
 
 const char* fieldName(int field) {
-  static const char* names[kFieldCount] = {
+  static const char* names[] = {
       "ap_fd_athr_common_condition", "ap_fd_common_condition", "fd_own_engaged", "ap_inop", "ap_own_engaged",
       "athr_inop", "athr_own_engaged", "fmgc_opp_priority", "fmgc_opp_mode_sync", "any_ap_fd_engaged",
       "lateral_mode_reset", "longitudinal_mode_reset", "fd_auto_disengage", "vs_target_not_held",
-      "ap_fd_mode_reversion", "pitch_fd_bars_flashing"};
+      "ap_fd_mode_reversion", "pitch_fd_bars_flashing", "land_2_capability", "land_3_fail_passive_capability",
+      "land_3_fail_op_capability", "land_2_inop", "land_3_fail_passive_inop", "land_3_fail_op_inop", "land_2_capacity",
+      "land_3_fail_passive_capacity", "land_3_fail_op_capacity"};
+  static_assert(sizeof(names) / sizeof(names[0]) == kFieldCount, "one name per field");
   return field >= 0 && field < kFieldCount ? names[field] : "?";
 }
 
 const char* conditionName(int c) {
-  static const char* names[kConditionCount] = {
+  static const char* names[] = {
       "ap_pb_push", "ap_pb_rejected", "ap_envelope_reject", "ap_pb_disengage", "ap_on_ground", "ap_opp_engage_reset",
       "ap_land_ga_end_reset", "ap_ground_toga_reset", "ap_engine_start_reset", "ap_request_drop", "dual_ap",
       "fd_transfer", "rollout_off_course", "athr_inhibited", "athr_pb_engage", "athr_pb_low_ra", "athr_srs_engage",
       "athr_alpha_floor_engage", "athr_tcas_engage", "athr_pb_disengage", "athr_levers_idle", "athr_ecu_disengage",
       "athr_opp_sync_lost", "unit_2", "opp_unhealthy", "opp_priority_unit_1", "opp_priority_unit_2",
-      "mode_reset_engine_start", "fd_disengage_climb", "fd_disengage_descent", "vs_not_held_low", "vs_not_held_high"};
+      "mode_reset_engine_start", "fd_disengage_climb", "fd_disengage_descent", "vs_not_held_low", "vs_not_held_high",
+      "land_own_ap", "land_opp_ap", "land3_fail_op_held", "land3_fail_passive_held", "land_capacity_own",
+      "land_capacity_opp"};
+  static_assert(sizeof(names) / sizeof(names[0]) == kConditionCount, "one name per condition");
   return c >= 0 && c < kConditionCount ? names[c] : "?";
 }
 
@@ -59,7 +65,7 @@ constexpr double kAthrEcuConfirmS = 0.9;         // A/THR not engaged in an ECU 
 constexpr float kFdDisengageVmaxMarginKt = 4;    // FD auto disengage above VMAX + 4 kt in CLB/OP CLB/EXP CLB ...
 constexpr float kFdDisengageVlsMarginKt = -2;    // ... or below VLS - 2 kt in DES/OP DES/EXP DES
 constexpr float kVsNotHeldMarginKt = 3;          // V/S-FPA target not held within 3 kt of VLS/VMAX ...
-constexpr double kVsNotHeldVsFpm = 50;           // ... when V/S deviates from the target by more than 50 (see doc)
+constexpr double kVsNotHeldVsFpm = 50;           // ... when V/S deviates from the target by more than 50 fpm
 constexpr double kVsNotHeldFpaDeg = 0.1;         // ... or FPA by more than 0.1°
 constexpr double kModeReversionPulseS = 1;       // AP/FD mode reversion (triple click) pulse
 constexpr double kPitchBarsFlashS = 10;          // pitch FD bars flash 10 s
@@ -271,8 +277,8 @@ void Engagement::updateFdFlags(const Stage2Inputs& in, Outputs& out) {
   const bool fdAutoDisengage = speedLimit && !apEngaged && out[AthrOwnEngaged] && out[FdOwnEngaged];
 
   // --- V/S or FPA target not held: AP in V/S or FPA within 3 kt of VLS while the aircraft is below the target, or of
-  // VMAX while above it. V/S compares the IR inertial vertical speed word with the FCU V/S (threshold 50), FPA the IR
-  // flight path angle with the FCU FPA (0.1°).
+  // VMAX while above it. V/S compares the IR inertial vertical speed (fpm, despite the field name) with the FCU V/S
+  // (threshold 50 fpm), FPA the IR flight path angle with the FCU FPA (0.1°).
   float targetError;
   double threshold;
   if (m.vs_active) {

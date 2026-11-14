@@ -63,6 +63,15 @@ bool generatedValue(const fmgc_outputs& o, int f) {
     case E::VsTargetNotHeld: return a.vs_target_not_held;
     case E::ApFdModeReversion: return a.ap_fd_mode_reversion;
     case E::PitchFdBarsFlashing: return a.pitch_fd_bars_flashing;
+    case E::Land2Capability: return a.land_2_capability;
+    case E::Land3FailPassiveCapability: return a.land_3_fail_passive_capability;
+    case E::Land3FailOpCapability: return a.land_3_fail_op_capability;
+    case E::Land2Inop: return a.land_2_inop;
+    case E::Land3FailPassiveInop: return a.land_3_fail_passive_inop;
+    case E::Land3FailOpInop: return a.land_3_fail_op_inop;
+    case E::Land2Capacity: return a.land_2_capacity;
+    case E::Land3FailPassiveCapacity: return a.land_3_fail_passive_capacity;
+    case E::Land3FailOpCapacity: return a.land_3_fail_op_capacity;
     default: return false;
   }
 }
@@ -210,17 +219,18 @@ int main(int argc, char** argv) {
     for (int f = 0; f < E::kStage1Count; f++) {
       check(f);
       if (!freeRunning) {
-        r.v[f] = generatedValue(out, f);  // stage 2 sees the generated stage-1 outputs
+        r.v[f] = generatedValue(out, f);  // stages 2 and 3 see the generated stage-1 outputs
       }
     }
-    for (int c = 0; c < E::CondFdDisengageClimb; c++) {
-      conditionSteps[c] += eng.cond[c];
-    }
     eng.updateFdFlags({out.data.time.dt, out.data, out.logic, out.ap_fd_logic}, r);
-    for (int f = E::kStage1Count; f < E::kFieldCount; f++) {
+    for (int f = E::kStage1Count; f < E::kStage2End; f++) {
       check(f);
     }
-    for (int c = E::CondFdDisengageClimb; c < E::kConditionCount; c++) {
+    eng.updateLandCapability({out.data.time.dt, out.data, out.logic, out.ap_fd_logic}, r);
+    for (int f = E::kStage2End; f < E::kFieldCount; f++) {
+      check(f);
+    }
+    for (int c = 0; c < E::kConditionCount; c++) {
       conditionSteps[c] += eng.cond[c];
     }
     lastReadable = r;
