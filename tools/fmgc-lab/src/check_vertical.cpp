@@ -2,14 +2,16 @@
 //
 // SPDX-License-Identifier: GPL-3.0
 
-// Differential check of the readable vertical mode logic (readable/vertical*.cpp) against the generated FmgcComputer,
-// over a flight data recording. The generated model is the oracle (not the recording), so use the stock variant.
+// Differential check of the readable vertical and lateral mode logic (readable/vertical*.cpp, lateral_modes.cpp)
+// against the generated FmgcComputer, over a flight data recording. The generated model is the oracle (not the recording), so use the stock variant.
 //
 // Modes:
 //   resync (default): every signal starts the frame from the generated value of the previous frame, and after each
 //     readable update the signal is compared and then reset to the generated value, so a mismatch points at exactly
 //     one signal's logic.
 //   --free: the readable logic keeps its own state (its own previous outputs feed `last`), as it would in the sim.
+//   --fuzz SEED, --approach SEED, --lateral SEED: input perturbations (src/input_fuzzer.h, scenario_approach.h,
+//     scenario_lateral.h), combinable.
 // Signals that are not rewritten yet always take the generated value.
 
 #include <chrono>
@@ -29,11 +31,13 @@
 
 #include "input_fuzzer.h"
 #include "scenario_approach.h"
+#include "scenario_lateral.h"
 #include "replay_core.h"
 #include "vertical.h"
 
 #include "external_approach.h"
 #include "external_climb_descent.h"
+#include "external_lateral.h"
 #include "external_vs_tcas.h"
 
 using fmgc::readable::External;
@@ -51,6 +55,17 @@ using DWork = FmgcComputer::D_Work_FmgcComputer_T;
 const boolean_T* latchOf(const DWork& d, Signal s) {
   switch (s) {
     case Signal::SrsTakeoff: return &d.Memory_PreviousInput_k;
+    case Signal::RwyLoc: return &d.Memory_PreviousInput_c;
+    case Signal::RwyTrk: return &d.Memory_PreviousInput_b;
+    case Signal::RollOut: return &d.Memory_PreviousInput_m;
+    case Signal::GaTrk: return &d.Memory_PreviousInput_el;
+    case Signal::HdgTrk: return &d.Memory_PreviousInput_dy;
+    case Signal::NavArmed: return &d.Memory_PreviousInput_j;
+    case Signal::Nav: return &d.Memory_PreviousInput_ly;
+    case Signal::LocArmed: return &d.Memory_PreviousInput_a;
+    case Signal::LocCapture: return &d.Memory_PreviousInput_cv;
+    case Signal::LocTrack: return &d.Memory_PreviousInput_lq;
+    case Signal::HdgTrkPreset: return &d.Memory_PreviousInput_bw;
     case Signal::LandArmed: return &d.Memory_PreviousInput_l;
     case Signal::Land: return &d.Memory_PreviousInput_d;
     case Signal::FlareMemory: return &d.Memory_PreviousInput_bc;
@@ -86,10 +101,29 @@ const boolean_T* latchOf(const DWork& d, Signal s) {
 boolean_T* outputOf(base_fmgc_ap_fd_logic_outputs& o, Signal s) {
   auto& m = o.longitudinal_modes;
   auto& a = o.armed_modes;
+  auto& l = o.lateral_modes;
   switch (s) {
     case Signal::SrsTakeoff: return &m.pitch_takeoff_active;
+    case Signal::RwyLoc: return &l.rwy_loc_submode_active;
+    case Signal::RwyTrk: return &l.rwy_trk_submode_active;
+    case Signal::RwyActive: return &l.rwy_active;
+    case Signal::RollOut: return &l.rollout_submode_active;
+    case Signal::Align: return &l.align_submode_active;
+    case Signal::GaTrk: return &l.roll_goaround_active;
+    case Signal::LateralReversion: return &o.lateral_mode_reversion;
+    case Signal::HdgActive: return &l.hdg_active;
+    case Signal::TrkActive: return &l.trk_active;
+    case Signal::NavArmed: return &a.nav_armed;
+    case Signal::Nav: return &l.nav_active;
+    case Signal::LocArmed: return &a.loc_armed;
+    case Signal::LocCapture: return &l.loc_cpt_active;
+    case Signal::LocTrack: return &l.loc_trk_active;
+    case Signal::RollFdBarsFlashing: return &o.roll_fd_bars_flashing;
+    case Signal::HdgTrkPreset: return &o.hdg_trk_preset_available;
+    case Signal::AnyLateralMode: return &o.any_lateral_mode_engaged;
+    case Signal::LocBcSelection: return &o.loc_bc_selection;
     case Signal::LandArmed: return &a.land_armed;
-    case Signal::Land: return &o.lateral_modes.land_active;
+    case Signal::Land: return &l.land_active;
     case Signal::FinalArmed: return &a.final_des_armed;
     case Signal::Final: return &m.final_des_active;
     case Signal::SrsGoAround: return &m.pitch_goaround_active;
@@ -126,6 +160,9 @@ bool generatedValue(const DWork& post, const fmgc_outputs& out, Signal s) {
   if (const boolean_T* l = latchOf(post, s)) {
     return *l;
   }
+  if (s == Signal::ActiveLateralLaw) {
+    return out.ap_fd_logic.active_lateral_law != lateral_law::NONE;
+  }
   auto o = out.ap_fd_logic;
   boolean_T* field = outputOf(o, s);
   return field ? *field : false;
@@ -145,6 +182,7 @@ void fillExternal(External& e, const fmgc_outputs& out, const DWork& pre, const 
   fillVsTcasExternal(e.vsTcas, out, pre, post);
   fillClimbDescentExternal(e.climbDescent, out, pre, post);
   fillApproachExternal(e.approach, out, pre, post);
+  fillLateralExternal(e.lateral, out, pre, post);
 }
 
 struct Stats {
@@ -165,6 +203,7 @@ int main(int argc, char** argv) {
   bool freeRunning = false;
   long fuzzSeed = -1;
   long approachSeed = -1;
+  long lateralSeed = -1;
   std::string path;
   for (int i = 1; i < argc; i++) {
     std::string a = argv[i];
@@ -174,15 +213,17 @@ int main(int argc, char** argv) {
       fuzzSeed = std::atol(argv[++i]);
     } else if (a == "--approach" && i + 1 < argc) {
       approachSeed = std::atol(argv[++i]);
+    } else if (a == "--lateral" && i + 1 < argc) {
+      lateralSeed = std::atol(argv[++i]);
     } else if (path.empty() && !a.empty() && a[0] != '-') {
       path = a;
     } else {
-      std::fprintf(stderr, "usage: fmgc-check-vertical [--free] [--fuzz SEED] [--approach SEED] <file.fdr>\n");
+      std::fprintf(stderr, "usage: fmgc-check-vertical [--free] [--fuzz SEED] [--approach SEED] [--lateral SEED] <file.fdr>\n");
       return 2;
     }
   }
   if (path.empty()) {
-    std::fprintf(stderr, "usage: fmgc-check-vertical [--free] [--fuzz SEED] [--approach SEED] <file.fdr>\n");
+    std::fprintf(stderr, "usage: fmgc-check-vertical [--free] [--fuzz SEED] [--approach SEED] [--lateral SEED] <file.fdr>\n");
     return 2;
   }
 
@@ -201,6 +242,9 @@ int main(int argc, char** argv) {
   bool haveLastReadable = false;
   std::vector<Stats> stats(kSignalCount);
   long steps = 0, checkedSteps = 0;
+  constexpr size_t kLawCount = static_cast<size_t>(lateral_law::ROLL_OUT) + 1;
+  long lawSteps[kLawCount] = {}, lawRises[kLawCount] = {};  // coverage of each active_lateral_law value
+  lateral_law prevLaw = lateral_law::NONE;
   double simTime = 0;
 
   std::unique_ptr<InputFuzzer> fuzzer;
@@ -211,9 +255,16 @@ int main(int argc, char** argv) {
   if (approachSeed >= 0) {
     scenario = std::make_unique<ApproachScenario>(static_cast<uint64_t>(approachSeed));
   }
+  std::unique_ptr<LateralScenario> lateralScenario;
+  if (lateralSeed >= 0) {
+    lateralScenario = std::make_unique<LateralScenario>(static_cast<uint64_t>(lateralSeed));
+  }
   replayer.beforeStep = [&]() {
     if (scenario) {
       scenario->apply(replayer.mutableInputs(), replayer.inputs().time.dt);
+    }
+    if (lateralScenario) {
+      lateralScenario->apply(replayer.mutableInputs(), replayer.inputs().time.dt);
     }
     if (fuzzer) {
       fuzzer->apply(replayer.mutableInputs(), replayer.inputs().time.dt);
@@ -252,6 +303,9 @@ int main(int argc, char** argv) {
           }
         }
       }
+      if (stats[static_cast<size_t>(Signal::ActiveLateralLaw)].implemented) {
+        last.active_lateral_law = lastReadable.activeLateralLaw;
+      }
     }
 
     External ext;
@@ -269,7 +323,19 @@ int main(int argc, char** argv) {
       st.trueSteps += generated;
       st.rises += generated && !st.prevGenerated;
       st.prevGenerated = generated;
-      if (s.v[i] != generated) {
+      bool mismatch = s.v[i] != generated;
+      if (id == Signal::ActiveLateralLaw) {
+        // enum-valued: compared as a value (the bool is law != NONE); coverage per law value below
+        lateral_law generatedLaw = out.ap_fd_logic.active_lateral_law;
+        mismatch = s.activeLateralLaw != generatedLaw;
+        lawSteps[static_cast<size_t>(generatedLaw)]++;
+        lawRises[static_cast<size_t>(generatedLaw)] += generatedLaw != prevLaw;
+        prevLaw = generatedLaw;
+        if (!freeRunning) {
+          s.activeLateralLaw = generatedLaw;
+        }
+      }
+      if (mismatch) {
         if (st.firstStep < 0) {
           st.firstStep = steps;
           st.firstTime = simTime;
@@ -301,7 +367,10 @@ int main(int argc, char** argv) {
   if (scenario) {
     std::printf("approach scenario seed %ld\n", approachSeed);
   }
-  std::printf("\n%-16s %6s %9s %10s %10s %10s %6s %10s %7s\n", "signal", "impl", "mismatch", "first", "t_first", "last",
+  if (lateralScenario) {
+    std::printf("lateral scenario seed %ld\n", lateralSeed);
+  }
+  std::printf("\n%-18s %6s %9s %10s %10s %10s %6s %10s %7s\n", "signal", "impl", "mismatch", "first", "t_first", "last",
               "gen@1st", "true", "rises");
   for (size_t i = 0; i < kSignalCount; i++) {
     const Stats& st = stats[i];
@@ -312,8 +381,14 @@ int main(int argc, char** argv) {
     if (st.mismatches) {
       failing++;
     }
-    std::printf("%-16s %6s %9ld %10ld %10.2f %10ld %6d %10ld %7ld\n", fmgc::readable::signalName(static_cast<Signal>(i)),
+    std::printf("%-18s %6s %9ld %10ld %10.2f %10ld %6d %10ld %7ld\n", fmgc::readable::signalName(static_cast<Signal>(i)),
                 "yes", st.mismatches, st.firstStep, st.firstTime, st.lastStep, st.firstGenerated, st.trueSteps, st.rises);
+  }
+  if (stats[static_cast<size_t>(Signal::ActiveLateralLaw)].implemented) {
+    static const char* lawNames[kLawCount] = {"NONE", "HDG", "TRACK", "HPATH", "LOC_CPT", "LOC_TRACK", "ROLL_OUT"};
+    for (size_t k = 0; k < kLawCount; k++) {
+      std::printf("law %-12s %10ld steps %7ld rises\n", lawNames[k], lawSteps[k], lawRises[k]);
+    }
   }
   std::printf("\n%ld signals rewritten, %ld with mismatches\n", implemented, failing);
   return failing == 0 ? 0 : 1;
