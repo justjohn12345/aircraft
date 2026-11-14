@@ -190,3 +190,22 @@ Without `--athr`, the recordings and the fuzzer never produce THR MCT and rarely
 out. With the `--athr` scenarios (src/scenario_athr.h) every FMA mode the code can produce and every message are seen
 (THR MCT is the rarest: it needs one engine out, both levers in (34, 35], THR mode and no FLEX). Never produced by the
 code: MAN GA SOFT, MAN DTO, LVR TOGA. Input conditions are counted per run (`conditions:` line of the report).
+
+Not covered: RETARD at exactly 40 ft RA (LAND with the AP and the A/THR engaged at that height is rare in the
+synthetic approaches), and the climbing-RA LVR CLB inhibition with a non-normal IAS word while the raw IAS is above
+VMAX − 20 kt.
+
+## Mutation test (2026-11-14)
+
+478 single mutations of `readable/athr_modes.cpp` (relational and logical operators, negations, every named constant
+±1 or ±0.1, edge/confirm polarities, stuck-at-true/false on every boolean operand, and 30 hand-written structural
+ones: latch inputs swapped, confirm/pulse nodes removed, raw vs validated words, law families), each checked against
+the corpus with the `--athr`, `--approach`, `--fuzz` and free-running runs: 464 caught, 14 survived.
+
+- 12 are equivalent or unreachable: `engaged` in `auto_` and in the THR MCT / THR CLB / A.FLOOR / TOGA LK branches
+  (active and alpha floor imply engaged, and manual lever positions are caught by the MAN branches first); `mach` in
+  the MACH branch and `idleTarget` in THR IDLE (implied by the earlier branches); THR LVR `< 25` vs `<= 25`; the
+  engine-out term of the LVR MCT set (the reset `¬one_engine_out` has priority); `> 500` vs `>= 500` in the climbing-RA
+  term (at exactly 500 the level/descent-RA term gives LVR CLB anyway); the TCAS latch !Q when set and reset are both
+  true (cannot happen); `ownCompute` in the RETARD set (opposite-FMGC sync and own AP engaged cannot both hold).
+- 2 are reachable but not covered (above): RA `<= 40` vs `< 40`, and the IAS word read raw instead of validated.

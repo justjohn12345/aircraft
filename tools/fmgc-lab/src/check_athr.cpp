@@ -146,6 +146,8 @@ int main(int argc, char** argv) {
   Stats stats[A::kFieldCount];
   std::map<int, long> fmaModeSteps, fmaMessageSteps;  // coverage of the generated FMA values
   std::map<std::string, long> conditionSteps;          // coverage of autothrust input conditions
+  bool prevNoneOnGroundEngaged = false;
+  vertical_law prevLaw = vertical_law::NONE;
   long steps = 0, checkedSteps = 0;
 
   replayer.beforeStep = [&]() {
@@ -260,6 +262,23 @@ int main(int argc, char** argv) {
                                     lg.ra_computation_data.radio_height_ft.Data <= 40.0F);
       cover("law_none_on_ground_engaged", ap.active_longitudinal_law == vertical_law::NONE && lg.on_ground && engaged);
       cover("retard_on_ground", gen.retard_mode_active && lg.on_ground);
+      bool landAp = ap.lateral_modes.land_active && lg.ap_own_engaged && engaged;
+      cover("ra_eq_40_land_ap_athr", landAp && lg.ra_computation_data.radio_height_ft.Data == 40.0F);
+      cover("ra_not_normal_land_ap_athr", landAp && !a429::isNormal(lg.ra_computation_data.radio_height_ft));
+      bool noneOnGroundEngaged = ap.active_longitudinal_law == vertical_law::NONE && lg.on_ground && engaged;
+      cover("law_none_on_ground_engaged_onset", noneOnGroundEngaged && !prevNoneOnGroundEngaged);
+      prevNoneOnGroundEngaged = noneOnGroundEngaged;
+      // on the ground, the law changes to NONE from a law outside the SPEED family (SPEED engages unless RETARD)
+      cover("law_to_none_on_ground_engaged", noneOnGroundEngaged && prevLaw != vertical_law::NONE &&
+                                                 (prevLaw == vertical_law::SPD_MACH || prevLaw == vertical_law::SRS ||
+                                                  prevLaw == vertical_law::VPATH));
+      prevLaw = ap.active_longitudinal_law;
+      cover("land_ap_athr", landAp);
+      bool tcasManual = lm.tcas_active && engaged && !gen.athr_active;
+      cover("tcas_manual_thrust", tcasManual);
+      cover("tcas_manual_ias_or_vmax_not_normal",
+            tcasManual && (!a429::isNormal(lg.adr_computation_data.airspeed_computed_kn) ||
+                           !a429::isNormal(lg.chosen_fac_bus.v_max_kn)));
     }
     fmaMessageSteps[static_cast<int>(gen.fma_message)]++;
     lastReadable = r.out;
