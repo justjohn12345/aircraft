@@ -120,3 +120,17 @@ FmgcComputer's calls to its outer loops are captured with all inputs and outputs
 statements inserted before given lines (`src/probes/*.txt`, `BEFORE <line> <name> <expr>`) report intermediate values.
 `law_selection.txt` taps every law's FD/AP command just before the two law switches, so each law is compared every
 frame whichever law is active; add your own probe file to tap a law's internals while debugging. Exact comparison.
+
+## Phase 5c: readable AP / FD / A/THR engagement
+
+`readable/engagement.{h,cpp}`: the AP/FD/A/THR common conditions, FD engaged, AP engage request and AP engaged, A/THR
+inhibit and A/THR engaged, AP/A/THR inop, opposite-FMGC priority and mode sync, `any_ap_fd_engaged`, the mode reset
+(stage 1, before the mode logic) and the FD auto disengage, V/S target not held, mode reversion and pitch FD bars flags
+(stage 2, after the vertical modes). Spec: `docs/modes/engagement.md`.
+
+Check: `build/fmgc-check-engagement-stock [--free] [--fuzz SEED] [--approach SEED] [--athr SEED] [--lateral SEED]
+[--engagement SEED] file.fdr`, whole corpus `JOBS=4 scripts/check-engagement-corpus.sh [runs]`. `--engagement` injects
+synthetic AP/FD/A/THR episodes (`src/scenario_engagement.h`): pushbutton presses, disconnects, the engagement envelope,
+FD pushbuttons, opposite-FMGC patterns and unit 2, ground windows with engine starts and levers, A/THR presses around
+100 ft RA, common condition losses. The report lists, per output, mismatches, steps true and rises (generated), and
+the steps each intermediate condition was reached (readable, = generated in resync mode).
