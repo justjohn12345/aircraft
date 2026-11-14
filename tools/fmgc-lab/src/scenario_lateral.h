@@ -44,7 +44,8 @@ struct LateralScenario {
   double hdgInt = 0;
   int fcuBit = 0;
   bool navCapture = true, fpValid = true, dirTo = false, hdgSelValid = true, trkSelValid = false, hdgVs = true;
-  bool bscuValid = true, wheelSpin = false;
+  bool bscuValid = true, bscuOppValid = true, wheelSpin = false, dirToBurst = false;
+  double dirToAge = 0;
 
   explicit LateralScenario(uint64_t seed) : rng(seed) {}
   double u(double lo, double hi) { return std::uniform_real_distribution<double>(lo, hi)(rng); }
@@ -206,7 +207,8 @@ struct LateralScenario {
         trkSelValid = p(0.3);
       }
       if (trkToggle) hdgVs = p(0.5);
-      bscuValid = p(0.7);
+      bscuValid = p(0.6);
+      bscuOppValid = p(0.6);
       wheelSpin = p(0.6);
     }
     if (presetToggle) {
@@ -224,10 +226,14 @@ struct LateralScenario {
         navCapture = p(0.6);
         fpValid = p(0.8);
         dirTo = p(0.2);
+        dirToBurst = dirTo && p(0.5);  // two short DIR TO requests 0.3 s apart
+        dirToAge = 0;
       }
       in.fms_inputs.nav_capture_condition = navCapture;
       in.fms_inputs.lateral_flight_plan_valid = fpValid;
-      in.fms_inputs.direct_to_nav_engage = dirTo;
+      dirToAge += dt;
+      in.fms_inputs.direct_to_nav_engage =
+          dirTo && (!dirToBurst || (dirToAge < 0.6 && std::fmod(dirToAge, 0.3) < 0.1));
       in.fms_inputs.fms_flight_phase = static_cast<fmgc_flight_phase>(phase);
     }
     if (takeoff) {
@@ -259,7 +265,7 @@ struct LateralScenario {
     }
     if (wheels && b.ra_own_bus.radio_height_ft.Data < 80) {
       in.discrete_inputs.bscu_own_valid = bscuValid;
-      in.discrete_inputs.bscu_opp_valid = bscuValid && p(0.5);
+      in.discrete_inputs.bscu_opp_valid = bscuOppValid;
       in.discrete_inputs.left_wheel_spd_abv_70_kts = wheelSpin;
       in.discrete_inputs.right_wheel_spd_abv_70_kts = wheelSpin && p(0.9);
     }

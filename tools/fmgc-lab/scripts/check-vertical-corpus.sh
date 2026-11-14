@@ -15,19 +15,24 @@ if [ -n "$(find "$here/readable" "$here/src" -newer "$bin" \( -name '*.cpp' -o -
 fi
 out=$here/build/check-vertical
 rm -rf "$out" && mkdir -p "$out"
-jobs=()
+# run NAME ARGS...: one check in the background, at most JOBS (default nproc) at a time
+run() {
+  local name=$1
+  shift
+  while [ "$(jobs -r | wc -l)" -ge "${JOBS:-$(nproc)}" ]; do wait -n; done
+  "$bin" "$@" > "$out/$name.txt" 2>&1 &
+}
 for path in "$corpus"/*.fdr; do
   f=$(basename "$path" .fdr)
-  "$bin" "$path" > "$out/$f.resync.txt" 2>&1 &
-  "$bin" --free "$path" > "$out/$f.free.txt" 2>&1 &
+  run "$f.resync" "$path"
+  run "$f.free" --free "$path"
   for ((seed = 1; seed <= runs; seed++)); do
-    "$bin" --fuzz $seed "$path" > "$out/$f.fuzz$seed.txt" 2>&1 &
-    "$bin" --free --fuzz $seed "$path" > "$out/$f.free-fuzz$seed.txt" 2>&1 &
-    "$bin" --approach $seed --fuzz $seed "$path" > "$out/$f.approach$seed.txt" 2>&1 &
-    "$bin" --lateral $seed --fuzz $seed "$path" > "$out/$f.lateral$seed.txt" 2>&1 &
-    "$bin" --free --approach $seed --lateral $((seed + 100)) "$path" > "$out/$f.lateral-approach$seed.txt" 2>&1 &
+    run "$f.fuzz$seed" --fuzz $seed "$path"
+    run "$f.free-fuzz$seed" --free --fuzz $seed "$path"
+    run "$f.approach$seed" --approach $seed --fuzz $seed "$path"
+    run "$f.lateral$seed" --lateral $seed --fuzz $seed "$path"
+    run "$f.lateral-approach$seed" --free --approach $seed --lateral $((seed + 100)) "$path"
   done
-  while [ "$(jobs -r | wc -l)" -ge "${JOBS:-$(nproc)}" ]; do wait -n; done
 done
 wait
 # coverage: signals never true in any run
