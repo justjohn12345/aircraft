@@ -3,6 +3,8 @@
 Native (no MSFS) build of the generated A32NX FMGC (`FmgcComputer` + `FmgcOuterLoops`) with a flight data recorder
 replay harness. Phase 0 of the FMGC reverse-engineering plan (`~/fmgc-lab/PLAN.md`).
 
+**Findings:** every bug and FCOM difference found so far, with status, is indexed in `docs/findings.md`.
+
 ## Build
 
 No host compiler is needed: the build runs in the FBW dev container and produces static binaries that run on the host.
