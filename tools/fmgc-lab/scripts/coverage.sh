@@ -5,7 +5,9 @@
 # llvm-cov run in the dev container.
 #
 # usage:
-#   [JOBS=4] [SEEDS=2] scripts/coverage.sh replay [CORPUS_DIR]   corpus x scenario configs  -> build/coverage/replay
+#   [JOBS=4] [SEEDS=2] [COV_NAME=replay] scripts/coverage.sh replay [CORPUS_DIR]
+#                                                                corpus x scenario configs  -> build/coverage/COV_NAME
+#                                                                (SEEDS=0: plain replays only)
 #   [JOBS=4] scripts/coverage.sh fuzz NAME CORPUS...             fuzz corpus dirs/files     -> build/coverage/NAME
 #   scripts/coverage.sh merge NAME A B                           union of two results       -> build/coverage/NAME
 # Each result dir holds merged.profdata, report.txt (llvm-cov report: lines/regions/branches per file), html/
@@ -46,9 +48,10 @@ case "$mode" in
   replay)
     corpus=${2:-$HOME/fdr-corpus/raw}
     seeds=${SEEDS:-2}
-    rm -rf "$cov/replay"
-    mkdir -p "$cov/replay/raw" "$cov/replay/runs"
-    list="$cov/replay/runs.txt"
+    rn=${COV_NAME:-replay}
+    rm -rf "${cov:?}/$rn"
+    mkdir -p "$cov/$rn/raw" "$cov/$rn/runs"
+    list="$cov/$rn/runs.txt"
     : > "$list"
     for f in "$corpus"/*.fdr; do
       echo "$f|plain|" >> "$list"
@@ -65,15 +68,15 @@ case "$mode" in
       done
     done
     echo "$(wc -l < "$list") runs, $jobs at a time"
-    export cov here
+    export cov here rn
     t0=$(date +%s)
     # shellcheck disable=SC2016
     xargs -P "$jobs" -d '\n' -n 1 bash -c 'IFS="|" read -r f tag args <<< "$0"; b=$(basename "$f" .fdr); \
-      LLVM_PROFILE_FILE="$cov/replay/raw/cov-%4m.profraw" "$here/build/fmgc-cov-drive" $args "$f" \
-        > "$cov/replay/runs/$b-$tag.txt" 2>&1 || echo "FAILED $b $tag"' < "$list"
+      LLVM_PROFILE_FILE="$cov/$rn/raw/cov-%4m.profraw" "$here/build/fmgc-cov-drive" $args "$f" \
+        > "$cov/$rn/runs/$b-$tag.txt" 2>&1 || echo "FAILED $b $tag"' < "$list"
     echo "runs done in $(( $(date +%s) - t0 )) s"
-    python3 "$here/scripts/props_summary.py" "$cov"/replay/runs/*.txt > "$cov/replay/props.txt"
-    report replay fmgc-cov-drive
+    python3 "$here/scripts/props_summary.py" "$cov/$rn"/runs/*.txt > "$cov/$rn/props.txt"
+    report "$rn" fmgc-cov-drive
     ;;
   fuzz)
     name=$2

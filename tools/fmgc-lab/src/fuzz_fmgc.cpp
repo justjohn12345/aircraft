@@ -293,6 +293,12 @@ std::string describe(const FuzzCase& c) {
                 c.snapshot, gH->bank.recordingName(s.recording), s.simTime, s.frames, c.start, c.steps, c.timeScale,
                 c.seed, c.events.size());
   std::string out = buf;
+  out += "\n  bytes ";
+  for (uint8_t b : encode(c)) {
+    char h[4];
+    std::snprintf(h, sizeof h, "%02x", b);
+    out += h;
+  }
   for (const Event& e : c.events) {
     std::snprintf(buf, sizeof buf, "\n  step %5u +%4u %-15s a=%3u b=%5u c=%5u", e.start, e.duration, kindName(e.kind),
                   e.a, e.b, e.c);

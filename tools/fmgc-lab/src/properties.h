@@ -126,7 +126,10 @@ class Properties {
     havePrev2_ = false;
     std::fill(badFor_.begin(), badFor_.end(), 0.0);
     std::fill(inViolation_.begin(), inViolation_.end(), false);
-    airborneS_ = -1;
+    airborneS_ = -2;      // not seeded yet
+    sinceStartS_ = 1e9;   // a restored snapshot is not a restart of the model
+    wasOff_ = false;
+    offS_ = 0;
     altStarTargetKnown_ = false;
     vsPendingSteps_ = -1;
     flareSinceLand_ = false;
@@ -150,6 +153,7 @@ class Properties {
         bad(FrozenWhenOff, std::memcmp(&out, &prev_, sizeof(out)) != 0, [] { return std::string("outputs changed while not running"); });
       }
       wasOff_ = true;
+      offS_ += dt_;
       return;  // the generated step does nothing; keep the history of the last running frame
     }
     const auto& ap = out.ap_fd_logic;
@@ -161,13 +165,31 @@ class Properties {
 
     bool onGround = lg.on_ground;
     bool engStoppedGround = in.discrete_inputs.eng_own_stop && in.discrete_inputs.eng_opp_stop && onGround;
-    // airborne timer (own): unknown after reset, seeded from the conditioning's 5 s in-flight confirm
-    if (airborneS_ < 0) {
-      airborneS_ = onGround ? 0 : (lg.gnd_eng_stop_flt_5s ? 1e9 : 0);
+    // Time airborne (own model of it): unknown (-1) when a run or a power-up starts in flight without the conditioning's
+    // 5 s in-flight confirm (which restarts at every power-up, docs/conditioning.md finding 9). Unknown counts as
+    // airborne for more than 5 s (the aircraft was flying). sinceStartS_: time since the model (re)started running, for
+    // the mode logic's own 5 s confirmation nodes, which restart with it.
+    if (wasOff_) {
+      sinceStartS_ = 0;
+      if (!onGround && airborneS_ >= 0 && airborneS_ < 1e8) {
+        airborneS_ += offS_;  // still flying during the power cut
+      }
     } else {
-      airborneS_ = onGround ? 0 : airborneS_ + dt_;
+      sinceStartS_ += dt_;
     }
-    bool airborne5 = airborneS_ >= 5.0 || engStoppedGround;
+    if (airborneS_ == -2) {
+      airborneS_ = onGround ? 0 : (lg.gnd_eng_stop_flt_5s ? 1e9 : -1);
+    } else if (onGround) {
+      airborneS_ = 0;
+    } else if (airborneS_ >= 0) {
+      airborneS_ += dt_;
+    }
+    offS_ = 0;
+    constexpr double kFrameTol = 0.05;  // one frame of slack on the 5 s timers
+    bool airborneKnown = airborneS_ >= 0;
+    bool airborne5 = (airborneKnown ? airborneS_ >= 5.0 - kFrameTol : true) || engStoppedGround;
+    bool confirm5 = !onGround && sinceStartS_ >= 5.0 - kFrameTol &&
+                    (airborneKnown ? airborneS_ >= 5.0 - kFrameTol : true);
     double H = valueOr(lg.altitude_indicated_ft, 0);
     double fcuAlt = valueOr(in.bus_inputs.fcu_bus.selected_alt_ft, 0);
     double ra = lg.ra_computation_data.radio_height_ft.Data;
@@ -342,7 +364,7 @@ class Properties {
         // listed reasons, observable from inputs and outputs
         bool knob = (bit(w1, 16) || bit(w1, 19)) && !(bit(prevW1_, 16) || bit(prevW1_, 19));
         bool apFdEngage = !onGround && ap.any_ap_fd_engaged && !p.any_ap_fd_engaged && !p.any_longitudinal_mode_engaged;
-        bool liftoff = !onGround && airborneS_ >= 5.0 && !p.any_longitudinal_mode_engaged;
+        bool liftoff = confirm5 && !p.any_longitudinal_mode_engaged;
         bool gsPrev = pm.gs_capt_active || pm.gs_trk_active;
         bool gsPrev2 = havePrev2_ && (prev2Gs_);
         bool landNow = am.land_armed || la.land_active;
@@ -624,7 +646,7 @@ class Properties {
   uint32_t prevW1_ = 0;
   long step_ = 0;
   double t_ = 0, dt_ = 0;
-  double airborneS_ = -1;
+  double airborneS_ = -2, sinceStartS_ = 1e9, offS_ = 0;
   double altStarTarget_ = 0;
   bool altStarTargetKnown_ = false, altStarReported_ = false;
   int vsPendingSteps_ = -1;

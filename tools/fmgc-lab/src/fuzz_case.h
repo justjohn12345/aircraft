@@ -148,8 +148,13 @@ inline std::vector<uint8_t> encode(const FuzzCase& c) {
   uint32_t at = 0;
   for (const Event& e : c.events) {
     uint32_t gap = (e.start - at + 1) / 2;
-    while (gap > 255) {  // cannot happen with decoded cases; split long gaps with no-op-ish Dt x1 events
-      gap = 255;
+    while (gap > 255) {
+      // a gap longer than one record can hold (after the minimiser removed events): insert filler records,
+      // SimFlags with a = 0 for one step (the replay inputs have those flags false anyway)
+      uint8_t filler[kEventSize] = {255, 0, static_cast<uint8_t>(Kind::SimFlags), 0, 0, 0, 0, 0};
+      out.insert(out.end(), filler, filler + kEventSize);
+      at += 2 * 255;
+      gap = (e.start - at + 1) / 2;
     }
     at += 2 * gap;
     uint8_t d = e.duration <= 128 ? static_cast<uint8_t>(e.duration - 1)
