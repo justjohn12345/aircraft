@@ -149,3 +149,21 @@ JOBS=4 scripts/check-targets-corpus.sh [fuzz runs per file]
 `--targets SEED` adds synthetic speed-mode episodes (`src/scenario_targets.h`); `--events` prints a timeline of the
 selected/managed/Mach changes with the FCU and FMS speeds. Every field (latches, memos, both speed targets) is compared
 exactly; the report lists per-field coverage and the named set/reset causes and target branches seen.
+
+## Phase 5e: readable input conditioning
+
+`readable/conditioning.{h,cpp}`: the logic bus except the engagement fields: ADR / IR 2-of-3 voting and selection
+(own, then 3), indicated altitude, RA, FAC selection and its failure flags, on ground and the 5 s in-flight confirm,
+flap lever, engines, FCU, ILS (with the back-beam sign), TCAS mode availability, ILS tune inhibit and the runway heading
+memory (spec and findings: `docs/conditioning.md`).
+
+```sh
+build/fmgc-check-conditioning-stock [--free] [--fuzz SEED] [--approach SEED] [--engagement SEED] [--lateral SEED] \
+  [--failures SEED] file.fdr
+JOBS=4 scripts/check-conditioning-corpus.sh [runs per file]
+```
+
+Every leaf of the logic bus (172: each ARINC word's SSM and data, floats bit for bit) is compared. `--failures SEED`
+injects sensor and equipment failures (`src/scenario_conditioning.h`): SSM FW/NCD/FT on one, two or three ADRs/IRs,
+RA/ILS/FAC/FCU/TCAS failures, discrete flips, thresholds and glitches around the 5 s confirmation. The report lists
+per-leaf mismatches, changes and steps true, and how often each selection branch was taken.
