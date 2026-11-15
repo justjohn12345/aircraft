@@ -109,6 +109,7 @@ class Conditioning {
   void update(const Inputs& in, base_fmgc_logic_outputs& out);
 
   State& state() { return s_; }
+  const State& state() const { return s_; }
 
  private:
   State s_;

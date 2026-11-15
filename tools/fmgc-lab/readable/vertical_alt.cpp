@@ -178,6 +178,7 @@ bool VerticalModeLogic::updateAlt(Signal id, const Frame& f, Signals& s) {
       double toTarget = s.altSelOrCstr - h;
       bool captureCond = f.last.armed_modes.alt_acq_armed && !fcuChanged &&
                          captureDistanceFt(vs) > std::abs(toTarget) && sign(toTarget) == sign(vs);
+      aux.altCaptureCond = captureCond;
 
       float radioHeight = rawValue(f.ext.logic->ra_computation_data.radio_height_ft);
       bool srsAllows = radioHeight >= kSrsMinRadioHeightFt || (!last.pitch_goaround_active && !last.pitch_takeoff_active);
@@ -198,6 +199,7 @@ bool VerticalModeLogic::updateAlt(Signal id, const Frame& f, Signals& s) {
       bool oppHold = f.ext.oppModeSync && oppFmgcBit(opp, kOppWord1AltCaptOrHold) && oppFmgcBit(opp, kOppWord1AltHoldOrGs);
       bool withinBand = alt_.withinAltHoldBand.update(std::abs(s.altSelOrCstr - h) < kAltHoldBandFt, f.dt, true,
                                                       kAltHoldConfirmS);
+      aux.altHoldBand = withinBand;
       bool set = oppHold ||
                  (ownCompute && last.alt_acq_active && withinBand && tcasAllows(f, tcas_submode::ALT_HOLD));
 

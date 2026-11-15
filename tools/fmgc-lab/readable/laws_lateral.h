@@ -110,7 +110,7 @@ struct RollOutState {
 struct LateralOutputState {
   double bankLimitDeg = 25;  // pY_b, rate limited at 5°/s
   bool bankLimitPrimed = false;
-  blocks::LagFilter<double> fdPhiLag;   // sf_LagFilter_f, 2 rad/s
+  blocks::LagFilter<double> fdPhiLag;   // sf_LagFilter_f, 2 rad/s, of the negated roll error
   double apPhiIntegrator = 0;           // Delay_DSTATE_f: AP roll command, moved at the roll-rate limit
   bool apPhiIntegratorLoad = true;      // icLoad
   double apRollRateLimit = 5;           // pY_c, 5°/s (7.5°/s in LOC and roll-out), changed at 2.5°/s²

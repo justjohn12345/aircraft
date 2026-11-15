@@ -161,3 +161,12 @@ Integration notes (chaining the readable stages into one step()):
   `delta_q`), `rtb_DataTypeConversion1_l` the IR roll then the AP Φ_c (ail/splr), `rtb_Switch1_n` the AP Φ_c, then the
   N1 command, `rtb_y_er` / `rtb_OR1_fl` A/THR active / limited, `rtb_y_ag` / `rtb_y_js` the A/THR FMA mode / message,
   `rtb_Switch9` the speed-margin SSM.
+
+Integration (`docs/integration.md`, `readable/fmgc.cpp`): the readable stages chained in the order above reproduce the
+whole step bit-exact, free-running. Corrections: the logic and ap_fd_logic bus assembly is 3864–4054 (ap_fd_logic from
+3972), with some ap_fd_logic fields written where they are computed (1635, 1666–1668, 1792, 1910, 2465, 2609, 3357,
+3402–3404, 3685–3710, 3740–3792); 1560–1668 also hold the TCAS RA decoding and the three TCAS FMA flags (now
+`readable/tcas.cpp`); the outer-loop arguments are assembled at 4055–4137 (`readable/outer_loop_inputs.cpp`), with two
+block-output memories (`B.u` ILS DME distance, `B.u_lyjjl` GA/RWY TRK track) that, like `B.u_lyjj`, `B.u_l`, `B.u_ly`,
+`B.u_lyj`, `B.u_lyjjlj` and the FmgcOuterLoops `B.u`, survive a restart. The longitudinal law selection (3756–3792) is
+`readable/law_selection.cpp`.
