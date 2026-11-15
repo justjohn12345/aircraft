@@ -29,6 +29,7 @@
 #include <memory>
 #include <random>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 #include "FmgcComputer_types.h"
@@ -75,7 +76,7 @@ enum class Kind : uint8_t {
   Tcas,           // RA word: a&1 RA active (bit 20), b -> combined control bits, c&1 TA display, c&2 sensitivity
   Ils,            // both ILS receivers: LOC dev int8(a)/50 deg, G/S dev int8(b)/50 deg, course = heading + int8(c)
   SimFlags,       // a bits: slew, pause, tracking mode override, tailstrike protection
-  Dt,             // time step override: dt x {0.25, 0.5, 2, 4, 8, 0 (zero dt), 1/60 s, 0.2 s}[a mod 8]
+  Dt,             // time step override: dt x {0.25, 0.5, 2, 4, 8, 1.5}, or 1/60 s, 0.2 s [a mod 8] (never <= 0)
   kKindCount
 };
 
@@ -199,6 +200,51 @@ struct InputFieldIndex {
   }
 };
 
+/**
+ * Keeps the inputs in the domain both models are defined on: bools 0/1, enums in range (other values are undefined
+ * behaviour in C++ and the generated and readable computers may branch differently), finite floats, 0 < dt <= 1 s.
+ * Every scenario injector and fuzz event goes through it (the corpus driver calls it after the injectors).
+ */
+inline void sanitizeInputs(fmgc_inputs& in) {
+  const auto& t = FieldTable<fmgc_inputs>::get();
+  auto* base = reinterpret_cast<unsigned char*>(&in);
+  for (size_t i = 0; i < t.fields().size(); i++) {
+    const FieldInfo& f = t.fields()[i];
+    unsigned char* p = base + f.offset;
+    if (f.kind == FieldKind::Bool) {
+      *p = *p != 0 ? 1 : 0;
+    } else if (f.kind == FieldKind::Float && f.size == 4) {
+      float v;
+      std::memcpy(&v, p, 4);
+      if (!std::isfinite(v)) {
+        v = 0.0F;
+        std::memcpy(p, &v, 4);
+      }
+    } else if (f.kind == FieldKind::Float && f.size == 8) {
+      double v;
+      std::memcpy(&v, p, 8);
+      if (!std::isfinite(v)) {
+        v = 0.0;
+        std::memcpy(p, &v, 8);
+      }
+    }
+  }
+  auto clampEnum = [](auto& e, int hi) {
+    int v = static_cast<int>(e);
+    if (v < 0 || v > hi) {
+      e = static_cast<std::remove_reference_t<decltype(e)>>(((v % (hi + 1)) + hi + 1) % (hi + 1));
+    }
+  };
+  clampEnum(in.fms_inputs.fms_flight_phase, 7);
+  clampEnum(in.fms_inputs.selected_approach_type, 2);
+  clampEnum(in.fms_inputs.requested_des_submode, 5);
+  if (!(in.time.dt > 0.0)) {
+    in.time.dt = 1e-3;
+  } else if (in.time.dt > 1.0) {
+    in.time.dt = 1.0;
+  }
+}
+
 /** Applies a case's events to the inputs of each step. One instance per run (scenario injectors keep state). */
 class EventApplier {
  public:
@@ -216,6 +262,7 @@ class EventApplier {
       }
       applyOne(i, e, step - e.start, in, last);
     }
+    sanitizeInputs(in);
   }
 
  private:
@@ -502,7 +549,7 @@ class EventApplier {
         in.sim_data.tailstrike_protection_on = e.a & 8;
         break;
       case Kind::Dt: {
-        static const double factor[] = {0.25, 0.5, 2, 4, 8, 0, -1, -2};
+        static const double factor[] = {0.25, 0.5, 2, 4, 8, 1.5, -1, -2};
         double f = factor[e.a % 8];
         in.time.dt = f >= 0 ? in.time.dt * f : (f == -1 ? 1.0 / 60.0 : 0.2);
         break;

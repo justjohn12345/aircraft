@@ -33,7 +33,7 @@ namespace fmgc::props {
 
 struct PropertyInfo {
   const char* id;
-  double toleranceS;  // bad condition must hold longer than this to be a violation
+  double toleranceS;  // bad condition must hold longer than this (s) to be a violation; < 0: -N frames
   const char* source;
   const char* text;
 };
@@ -59,7 +59,7 @@ inline const std::vector<PropertyInfo>& list() {
     {"lat.single_active_1s", 1.0, "task list + lateral.md", "two lateral modes never active together for more than 1 s (not while synchronised)"},
     {"armed_active.exclusive", 0, "task list", "a mode is never armed and active at once (NAV, LOC, G/S, FINAL, CLB, DES, LAND, ALT, TCAS)"},
     {"armed_active.exclusive_1s", 1.0, "task list", "armed and active together never last more than 1 s (not while synchronised)"},
-    {"modes.need_ap_fd", 0.1, "climb-descent.md S3 (mode reset without AP/FD)", "no lateral or vertical mode active while no AP/FD is engaged (0.1 s: the resets read the previous frame)"},
+    {"modes.need_ap_fd", -1, "climb-descent.md S3 (mode reset without AP/FD)", "no lateral or vertical mode active while no AP/FD is engaged for more than one frame (the resets read the previous frame)"},
     {"law.vertical_consistent", 0, "structure.md law selection", "active_longitudinal_law is the law of an active vertical mode (NONE only without one, or DES with no submode)"},
     {"law.lateral_consistent", 0, "structure.md law selection", "active_lateral_law is the law of an active lateral mode (NONE only without one)"},
     {"engaged.ap_implies_any", 0, "engagement.md", "own AP engaged implies any_ap_fd_engaged"},
@@ -71,8 +71,8 @@ inline const std::vector<PropertyInfo>& list() {
     {"athr.complementary", 1.5, "PLAN docs oracle (FBW docs)", "A/THR active and settled: pitch on speed (SPD_MACH, SRS law) => THR; pitch on path (ALT, ALT*, V/S, FPA, G/S law) => SPEED/MACH"},
     {"athr.retard_in_land", 0, "PLAN docs oracle (RETARD in FLARE)", "RETARD only with LAND or FLARE active (this or the previous frame)"},
     {"athr.retard_height_30ft", 0, "PLAN docs oracle (FBW docs: RETARD at 30 ft)", "RETARD engages at or below 30 ft RA"},
-    {"land.flare_implies_land", 0.1, "takeoff-ga-approach.md FLARE", "FLARE only with LAND active"},
-    {"land.rollout_implies_land", 0.1, "lateral.md ROLL OUT", "ROLL OUT and ALIGN only with LAND active"},
+    {"land.flare_implies_land", -1, "takeoff-ga-approach.md FLARE", "FLARE only with LAND active (one frame of lag allowed: FLARE reads the previous frame's LAND)"},
+    {"land.rollout_implies_land", -1, "lateral.md ROLL OUT", "ROLL OUT and ALIGN only with LAND active (one frame of lag allowed)"},
     {"land.flare_after_land", 0, "task list (LAND/FLARE/ROLL OUT order)", "FLARE engages only when LAND was active on the previous frame"},
     {"land.rollout_after_flare", 0, "task list (LAND/FLARE/ROLL OUT order)", "ROLL OUT engages only after FLARE has been active in this LAND engagement"},
     {"land.engage_conditions", 0, "PLAN docs oracle (LAND below 400 ft RA with LOC and G/S)", "LAND (own) engages below 400 ft RA with LOC and G/S tracking on the previous frame"},
@@ -125,6 +125,7 @@ class Properties {
     havePrev_ = false;
     havePrev2_ = false;
     std::fill(badFor_.begin(), badFor_.end(), 0.0);
+    std::fill(badFrames_.begin(), badFrames_.end(), 0);
     std::fill(inViolation_.begin(), inViolation_.end(), false);
     airborneS_ = -2;      // not seeded yet
     sinceStartS_ = 1e9;   // a restored snapshot is not a restart of the model
@@ -302,7 +303,7 @@ class Properties {
         idle(AthrComplementary);
       }
     }
-    if (havePrev_) {
+    if (havePrev_ && !wasOff_) {
       const auto& p = prev_.ap_fd_logic;
       bool land = la.land_active || lm.flare_active || p.lateral_modes.land_active || p.longitudinal_modes.flare_active;
       bad(RetardInLand, at.retard_mode_active && !land, [&] { return "lat " + latNames(latMask_) + " vert " + vertNames(vertMask_); });
@@ -317,7 +318,7 @@ class Properties {
     bad(FlareImpliesLand, lm.flare_active && !la.land_active, [] { return std::string(); });
     bad(RolloutImpliesLand, (la.rollout_submode_active || la.align_submode_active) && !la.land_active,
         [&] { return std::string(la.rollout_submode_active ? "ROLL OUT" : "ALIGN"); });
-    if (havePrev_) {
+    if (havePrev_ && !wasOff_) {
       const auto& p = prev_.ap_fd_logic;
       if (!la.land_active) {
         flareSinceLand_ = false;
@@ -352,7 +353,7 @@ class Properties {
     }
 
     // ---- vertical engagement rules (edges)
-    if (havePrev_) {
+    if (havePrev_ && !wasOff_) {
       const auto& p = prev_.ap_fd_logic;
       const auto& pm = p.longitudinal_modes;
       const auto& pl = p.lateral_modes;
@@ -386,8 +387,9 @@ class Properties {
         bool raActive = in.bus_inputs.tcas_bus.vertical_resolution_advisory.SSM == 3 && bit(raw, 20);
         bool tcasEnd = pm.tcas_active && (!raActive || !lg.tcas_mode_available);
         bool oppSync = sync && (bit(oppW1, 17) || bit(oppW1, 18));
+        // the loss terms are falling edges between the two previous frames: unknown on the first frames of a run
         bool ok = knob || apFdEngage || liftoff || gsLost || finalLost || desInvalid || altStarChange ||
-                  desFcuAbove || clbFcuBelow || tcasEnd || oppSync;
+                  desFcuAbove || clbFcuBelow || tcasEnd || oppSync || !havePrev2_;
         stats_[VsEngageReason].checked++;
         bad(VsEngageReason, !ok,
             [&] { return std::string("prev vert modes [" + vertNames(prevVertMask_) + "] lat [" + latNames(prevLatMask_) + "] onGround " +
@@ -405,7 +407,7 @@ class Properties {
             [&] { return std::string(vertNames(vertMask_) + " onGround " + std::to_string(onGround) + " airborne " + num(airborneS_) + " s"); }, false);
       }
       // ALT* target sample (= the generated u_ly: target on the frame ALT* latched)
-      if (lm.alt_acq_active && !pm.alt_acq_active) {
+      if (lm.alt_acq_active && !pm.alt_acq_active) {  // (a restart frame is skipped: sampled below)
         altStarTarget_ = ap.alt_sel_or_cstr;
         altStarTargetKnown_ = true;
         altStarReported_ = false;
@@ -494,6 +496,13 @@ class Properties {
                      " ATHR " + std::to_string(lg.athr_own_engaged); });
 
     // ---- restart and robustness
+    if (wasOff_) {
+      altStarTarget_ = ap.alt_sel_or_cstr;
+      altStarTargetKnown_ = lm.alt_acq_active;
+      altStarReported_ = false;
+      vsPendingSteps_ = -1;
+      havePrev2_ = false;
+    }
     if (wasOff_ && havePrev_) {
       stats_[CleanRestart].checked++;
       bad(CleanRestart, (anyVert || anyLat) && !ap.fmgc_opp_mode_sync, [&] { return "modes " + vertNames(vertMask_) + " / " + latNames(latMask_); }, false);
@@ -596,6 +605,7 @@ class Properties {
  private:
   void idle(int id) {
     badFor_[id] = 0;
+    badFrames_[id] = 0;
     inViolation_[id] = false;
   }
 
@@ -611,13 +621,15 @@ class Properties {
     }
     if (!isBad) {
       badFor_[id] = 0;
+      badFrames_[id] = 0;
       inViolation_[id] = false;
       return;
     }
     s.badFrames++;
     double tol = list()[id].toleranceS;
+    badFrames_[id]++;
     badFor_[id] += dt_;
-    bool over = tol <= 0 || badFor_[id] > tol;
+    bool over = tol < 0 ? badFrames_[id] > -tol : (tol == 0 || badFor_[id] > tol);
     if (over && !inViolation_[id]) {
       inViolation_[id] = true;
       s.violations++;
@@ -633,12 +645,14 @@ class Properties {
     if (!level) {
       // edge properties: one bad frame is one episode
       badFor_[id] = 0;
+      badFrames_[id] = 0;
       inViolation_[id] = false;
     }
   }
 
   std::vector<Stats> stats_;
   std::vector<double> badFor_;
+  std::vector<int> badFrames_ = std::vector<int>(kCount, 0);
   std::vector<bool> inViolation_;
   fmgc_outputs prev_{};
   bool havePrev_ = false, havePrev2_ = false, wasOff_ = false;

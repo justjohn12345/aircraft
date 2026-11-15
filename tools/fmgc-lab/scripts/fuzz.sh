@@ -15,8 +15,10 @@
 # With --coverage, the corpus is replayed through the coverage build afterwards (scripts/coverage.sh fuzz NAME) and
 # merged with build/coverage/replay (build/coverage/NAME+replay).
 #
-# Workers: libFuzzer fork mode (-fork=WORKERS, at most 4: the machine is shared), crashes/timeouts/OOMs ignored so the
-# campaign continues after a differential finding.
+# Workers (at most 4: the machine is shared): MODE=fork (default) is libFuzzer fork mode (-fork=WORKERS; crashes,
+# timeouts and OOMs ignored, so the campaign continues after a differential finding; every short job re-runs part of
+# the corpus, which costs throughput). MODE=jobs runs WORKERS independent long-lived fuzzers on the shared corpus
+# directory (-jobs/-workers, logs in logs/NAME/; a worker stops at its first differential finding).
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
 workers=${WORKERS:-4}
@@ -51,14 +53,25 @@ fi
 log="$fz/logs/$name.log"
 echo "campaign $name: $workers workers, $time s, log $log"
 cd "$fz"
-FMGC_FUZZ_BANK="$fz/bank.bin" FMGC_FUZZ_FINDINGS="$fz/findings" "$here/build/fmgc-fuzz" \
-  -fork="$workers" -ignore_crashes=1 -ignore_timeouts=1 -ignore_ooms=1 \
-  -max_total_time="$time" -max_len=520 -timeout=20 -rss_limit_mb=4096 \
-  -artifact_prefix="$fz/artifacts/" -print_final_stats=1 "${extra[@]}" \
-  "$fz/corpus" "$fz/seeds" > "$log" 2>&1 || true
+mode=${MODE:-fork}
+common=(-max_total_time="$time" -max_len=520 -timeout=20 -rss_limit_mb=4096 -artifact_prefix="$fz/artifacts/"
+  -print_final_stats=1)
+t0=$(date +%s)
+if [ "$mode" = jobs ]; then
+  mkdir -p "$fz/logs/$name"
+  (cd "$fz/logs/$name" && FMGC_FUZZ_BANK="$fz/bank.bin" FMGC_FUZZ_FINDINGS="$fz/findings" "$here/build/fmgc-fuzz" \
+    -jobs="$workers" -workers="$workers" "${common[@]}" "${extra[@]}" "$fz/corpus" "$fz/seeds" > "$log" 2>&1 || true)
+  cat "$fz/logs/$name"/fuzz-*.log >> "$log" 2>/dev/null || true
+else
+  FMGC_FUZZ_BANK="$fz/bank.bin" FMGC_FUZZ_FINDINGS="$fz/findings" "$here/build/fmgc-fuzz" \
+    -fork="$workers" -ignore_crashes=1 -ignore_timeouts=1 -ignore_ooms=1 "${common[@]}" "${extra[@]}" \
+    "$fz/corpus" "$fz/seeds" > "$log" 2>&1 || true
+fi
+echo "wall time $(( $(date +%s) - t0 )) s"
 echo "corpus: $(ls "$fz/corpus" | wc -l) inputs; findings: $(ls "$fz/findings" | grep -c '\.bin$' || true) reproducers"
+echo "artifacts (differential findings abort): $(ls "$fz/artifacts" | wc -l)"
 grep -E "^#[0-9]+: cov" "$log" | tail -1 || true
-grep -E "^#[0-9]+: cov" "$log" | awk '{for(i=1;i<=NF;i++) if($i=="exec/s:") {s+=$(i+1); n++}} END {if(n) printf "mean exec/s over log lines: %.0f\n", s/n}'
+grep -E "^stat::" "$log" || true
 ls "$fz/findings" | sed -n 's/-[0-9a-f]\{16\}\.bin$//p' | sort | uniq -c
 if [ $coverage = 1 ]; then
   "$here/scripts/coverage.sh" fuzz "$name" "$fz/corpus"

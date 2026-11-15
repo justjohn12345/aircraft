@@ -36,6 +36,12 @@ struct OpenWindow {
   double endTime = 0;
 };
 
+/** A copy of the model made from the snapshot bytes, stepped alongside the replay for 2000 steps (restore check). */
+struct Shadow {
+  std::unique_ptr<FmgcComputer> model;
+  long remaining = 2000;
+};
+
 void writeAt(FILE* f, uint64_t& pos, const void* data, size_t size) {
   std::fwrite(data, 1, size, f);
   pos += size;
@@ -94,6 +100,7 @@ int main(int argc, char** argv) {
   uint32_t oracleSize = 0;
   bool oracleSizeKnown = false;
   long totalFrames = 0;
+  long verifiedSteps = 0, restoreMismatches = 0;
 
   auto flush = [&](OpenWindow& w) {
     if (w.pendingCount > 0) {
@@ -136,6 +143,7 @@ int main(int argc, char** argv) {
     names.push_back(base);
     oracles.warmBegin();
     std::vector<std::unique_ptr<OpenWindow>> open;
+    std::vector<std::unique_ptr<Shadow>> shadows;
     int64_t step = 0;
     double lastSnap = -1e18;
     long snapsHere = 0;
@@ -150,6 +158,11 @@ int main(int argc, char** argv) {
         w->state.assign(reinterpret_cast<const uint8_t*>(computer.get()), reinterpret_cast<const uint8_t*>(computer.get()) + sizeof(FmgcComputer));
         oracles.saveState(w->oracle);
         w->endTime = t + window;
+        // restore check: a fresh object given these bytes must step exactly like the replayed one
+        auto sh = std::make_unique<Shadow>();
+        sh->model = std::make_unique<FmgcComputer>();
+        std::memcpy(static_cast<void*>(sh->model.get()), w->state.data(), sizeof(FmgcComputer));
+        shadows.push_back(std::move(sh));
         open.push_back(std::move(w));
         snapsHere++;
       }
@@ -177,6 +190,24 @@ int main(int argc, char** argv) {
     };
     replayer.afterStep = [&]() {
       oracles.warmStep(replayer.inputs(), computer->getExternalOutputs().out);
+      for (size_t i = 0; i < shadows.size();) {
+        Shadow& s = *shadows[i];
+        s.model->FmgcComputer_U = computer->FmgcComputer_U;  // this step's inputs
+        s.model->step();
+        verifiedSteps++;
+        // leaf by leaf (struct padding is copied from stack temporaries and differs between objects); hidden state
+        // that the bytes failed to capture shows up in the outputs within the 2000 steps
+        if (FieldTable<fmgc_outputs>::get().firstDifference(s.model->FmgcComputer_Y.out, computer->FmgcComputer_Y.out) >=
+            0) {
+          restoreMismatches++;
+          s.remaining = 0;
+        }
+        if (--s.remaining <= 0) {
+          shadows.erase(shadows.begin() + static_cast<long>(i));
+        } else {
+          i++;
+        }
+      }
       step++;
     };
     Replayer::Frame fr;
@@ -200,6 +231,8 @@ int main(int argc, char** argv) {
   header.snapshots = static_cast<uint32_t>(table.size());
   header.recordings = static_cast<uint32_t>(names.size());
   header.oracleSize = oracleSize;
+  std::fprintf(stderr, "restore check: %ld steps of models restored from snapshot bytes, %ld snapshots diverged%s\n",
+               verifiedSteps, restoreMismatches, restoreMismatches ? " (SNAPSHOTS ARE NOT COMPLETE)" : "");
   std::fseek(f, 0, SEEK_SET);
   std::fwrite(&header, sizeof header, 1, f);
   std::fclose(f);
