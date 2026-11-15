@@ -105,6 +105,18 @@ foreach(variant ${MODEL_VARIANTS})
   target_link_libraries(fmgc-check-targets-${name} PRIVATE fmgc_model_${name} ZLIB::ZLIB -static)
 endforeach()
 
+# Input conditioning check (Phase 5e): source selection, voting and failure flags (the logic bus).
+foreach(variant ${MODEL_VARIANTS})
+  string(REPLACE "=" ";" parts ${variant})
+  list(GET parts 0 name)
+  set(gen_dir ${CMAKE_CURRENT_BINARY_DIR}/gen-${name})
+  add_executable(fmgc-check-conditioning-${name} src/check_conditioning.cpp readable/conditioning.cpp
+    ${gen_dir}/fields.gen.h)
+  target_include_directories(fmgc-check-conditioning-${name} PRIVATE ${gen_dir} ${WASM_SRC} src readable)
+  target_compile_options(fmgc-check-conditioning-${name} PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(fmgc-check-conditioning-${name} PRIVATE fmgc_model_${name} ZLIB::ZLIB -static)
+endforeach()
+
 # Control-law checks (Phase 3): an instrumented copy of the stock model (outer-loop call hooks and probes), never the
 # repo's model/ folder. Built when a variant named "stock" exists.
 foreach(variant ${MODEL_VARIANTS})
