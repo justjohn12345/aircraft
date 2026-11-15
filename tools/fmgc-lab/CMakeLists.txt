@@ -123,6 +123,29 @@ foreach(variant ${MODEL_VARIANTS})
   target_link_libraries(fmgc-check-output-${name} PRIVATE fmgc_model_${name} ZLIB::ZLIB -static)
 endforeach()
 
+# The readable computer (Phase 5 integration): every readable stage chained into readable/fmgc.cpp, and its
+# whole-computer free-running differential check against the generated model.
+set(READABLE_COMPUTER_SOURCES
+  readable/fmgc.cpp readable/conditioning.cpp readable/engagement.cpp readable/engagement_land.cpp readable/tcas.cpp
+  readable/vertical.cpp readable/vertical_alt.cpp readable/vertical_vs_tcas.cpp readable/vertical_climb_descent.cpp
+  readable/vertical_approach.cpp readable/lateral_modes.cpp readable/targets.cpp readable/law_selection.cpp
+  readable/outer_loop_inputs.cpp readable/laws_output.cpp readable/laws_alt.cpp readable/laws_vs_fpa.cpp
+  readable/laws_speed.cpp readable/laws_path.cpp readable/laws_lateral.cpp readable/athr.cpp readable/athr_modes.cpp
+  readable/athr_n1.cpp readable/output_packing.cpp)
+foreach(variant ${MODEL_VARIANTS})
+  string(REPLACE "=" ";" parts ${variant})
+  list(GET parts 0 name)
+  list(GET parts 1 dir)
+  set(gen_dir ${CMAKE_CURRENT_BINARY_DIR}/gen-${name})
+  add_library(fmgc_readable_${name} STATIC ${READABLE_COMPUTER_SOURCES})
+  target_include_directories(fmgc_readable_${name} PUBLIC ${dir} ${WASM_SRC} readable)
+  target_compile_options(fmgc_readable_${name} PRIVATE -O2 -ffp-contract=off)
+  add_executable(fmgc-check-fmgc-${name} src/check_fmgc.cpp ${gen_dir}/fields.gen.h)
+  target_include_directories(fmgc-check-fmgc-${name} PRIVATE ${gen_dir} ${WASM_SRC} src readable)
+  target_compile_options(fmgc-check-fmgc-${name} PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(fmgc-check-fmgc-${name} PRIVATE fmgc_readable_${name} fmgc_model_${name} ZLIB::ZLIB -static)
+endforeach()
+
 # Control-law checks (Phase 3): an instrumented copy of the stock model (outer-loop call hooks and probes), never the
 # repo's model/ folder. Built when a variant named "stock" exists.
 foreach(variant ${MODEL_VARIANTS})

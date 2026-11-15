@@ -3,6 +3,8 @@
 Native (no MSFS) build of the generated A32NX FMGC (`FmgcComputer` + `FmgcOuterLoops`) with a flight data recorder
 replay harness. Phase 0 of the FMGC reverse-engineering plan (`~/fmgc-lab/PLAN.md`).
 
+**Findings:** every bug and FCOM difference found so far, with status, is indexed in `docs/findings.md`.
+
 ## Build
 
 No host compiler is needed: the build runs in the FBW dev container and produces static binaries that run on the host.
@@ -188,6 +190,29 @@ The packing has no state, so there is no resync/free mode: every running frame, 
 stage results and every field of `fmgc_outputs` is compared bit-exact (SSMs as integers, Data by bit pattern); also
 checked: `out.data` = the step's inputs, and what the end-of-step delays hold. The report lists per-word SSM counts and
 per-bit steps/rises; the corpus script lists the bits never set (only spares) over all runs.
+
+## Phase 5g: the readable computer
+
+`readable/fmgc.{h,cpp}`: `fmgc::readable::FmgcComputer` chains every readable stage into one `initialize()` /
+`step(const fmgc_inputs&)` with the generated model's interface, on its own state (no heap, no static state; restart
+semantics as generated: `computer_running` false holds the outputs, the next running frame resets everything but 8
+block-output memories). Glue written for it: TCAS RA decoding and flags (`readable/tcas.{h,cpp}`), the longitudinal law
+selection (`readable/law_selection.{h,cpp}`), the outer loops' input bus (`readable/outer_loop_inputs.{h,cpp}`) and
+the ap_fd_logic bus assembly. Stage graph, state inventory, findings, notes for fuzzing: `docs/integration.md`.
+
+```sh
+build/fmgc-check-fmgc-stock [--fuzz SEED] [--approach SEED] [--athr SEED] [--lateral SEED] [--engagement SEED] \
+  [--targets SEED] [--failures SEED] [--power SEED] [--warm FILE] [--time] file.fdr
+JOBS=4 scripts/check-fmgc-corpus.sh [seeds per file]   # every scenario alone, in pairs, all but one, all
+```
+
+Both computers run in lockstep on the same inputs, free-running (the readable one never sees a generated value), and
+the whole `fmgc_outputs` (1017 leaves) is compared bit-exact every frame, running or not. The first mismatch is
+reported with the differing fields, the earliest pipeline stage they belong to and the first divergence of the 65
+hidden memories compared alongside (every mode latch, the engagement / targets / A/THR latches, the memories that
+survive a restart). `--power SEED` adds FMGC power episodes (`src/scenario_power.h`: off for one frame to a minute,
+flicker, opposite FMGC lost), `--warm FILE` checks that `initialize()` is a complete reset, `--time` reports the step
+time of both computers only.
 
 ## Phase 4: coverage, fuzzing, property checks
 

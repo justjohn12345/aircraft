@@ -146,6 +146,7 @@ bool VerticalModeLogic::updateApproach(Signal id, const Frame& f, Signals& s) {
       bool onGround30s = a.toOnGround30s.update(logic.on_ground, f.dt, true, kOnGroundTakeoffS);
       bool takeoffThrustSet = takeoffThrust(tlaOpp(f), f.in.bus_inputs.fadec_opp_bus.selected_flex_temp_deg) ||
                               takeoffThrust(tlaOwn(f), f.in.bus_inputs.fadec_own_bus.selected_flex_temp_deg);
+      aux.takeoffThrust = takeoffThrustSet;
       bool thrustEdge = a.toTakeoffThrustEdge.update(takeoffThrustSet, true);
       bool v2Entered = f.in.fms_inputs.v_2_kts > 0.0;
       bool set = (v2Entered && oppTakeoff && oppSync) ||

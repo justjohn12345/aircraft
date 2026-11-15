@@ -222,6 +222,7 @@ class Targets {
   void update(Field id, const Inputs& in, Values& v, Trace& trace);
 
   State& state() { return st_; }
+  const State& state() const { return st_; }
 
  private:
   State st_;
