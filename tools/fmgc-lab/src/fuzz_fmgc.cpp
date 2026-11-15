@@ -188,7 +188,9 @@ constexpr size_t kOffArmed = kOffPair + kVertN * kLatN;               // 1024
 constexpr size_t kOffFma = kOffArmed + 1024;                          // 15 x 15
 constexpr size_t kOffLaws = kOffFma + 15 * 15;                        // 10 x 7
 constexpr size_t kOffProps = kOffLaws + 10 * 7;                       // properties: bad states
-constexpr size_t kExtra = kOffProps + fmgc::props::kCount;
+constexpr size_t kOffTcas = kOffProps + fmgc::props::kCount;           // TCAS active x submode x ALT armed
+constexpr size_t kOffMsg = kOffTcas + 2 * 3 * 2;                       // A/THR FMA message x A/THR active
+constexpr size_t kExtra = kOffMsg + 5 * 2;
 
 __attribute__((section("__libfuzzer_extra_counters"))) uint8_t gExtra[kExtra];
 
@@ -228,6 +230,10 @@ extern "C" int LLVMFuzzerInitialize(int* argc, char*** argv) {
       prevV = v;
       prevL = l;
       prevFma = fma;
+      // the integration's coverage targets: TCAS ALT_HOLD submode (never reached), FMA message LVR_TOGA
+      size_t sub = static_cast<size_t>(out.ap_fd_logic.active_tcas_submode) % 3;
+      bump(kOffTcas + (out.ap_fd_logic.longitudinal_modes.tcas_active ? 6 : 0) + sub * 2 + (a.alt_acq_armed ? 1 : 0));
+      bump(kOffMsg + static_cast<size_t>(out.athr.fma_message) % 5 * 2 + (out.athr.athr_active ? 1 : 0));
     };
   }
   return 0;
@@ -281,8 +287,14 @@ void listInputs(const std::string& p, std::vector<std::string>& out) {
     for (auto& n : names) {
       listInputs(n, out);
     }
-  } else if (p.size() < 4 || p.compare(p.size() - 4, 4, ".txt") != 0) {
-    out.push_back(p);
+  } else {
+    auto ends = [&](const char* suf) {
+      size_t n = std::strlen(suf);
+      return p.size() >= n && p.compare(p.size() - n, n, suf) == 0;
+    };
+    if (!ends(".txt") && !ends(".trace") && !ends(".log")) {
+      out.push_back(p);
+    }
   }
 }
 
@@ -307,6 +319,15 @@ std::string describe(const FuzzCase& c) {
   return out;
 }
 
+/** Size of a case for the minimiser: encoded bytes first, then steps and event durations. */
+uint64_t cost(const FuzzCase& c) {
+  uint64_t d = c.steps + c.timeScale;
+  for (const Event& e : c.events) {
+    d += e.duration;
+  }
+  return encode(c).size() * 1000000ULL + d;
+}
+
 /** First step at which `check` fires, or -1. */
 long firstHit(const FuzzCase& c, const std::string& check) {
   long hit = -1;
@@ -324,6 +345,7 @@ int cmdRun(const std::vector<std::string>& paths, bool trace, bool summary) {
     listInputs(p, files);
   }
   std::map<std::string, long> perCheck;
+  std::map<int, long> fmaModeSteps, fmaMsgSteps, tcasSubmodeSteps;  // coverage of the integration's targets
   long steps = 0;
   for (const std::string& file : files) {
     std::vector<uint8_t> data = readFile(file);
@@ -354,6 +376,18 @@ int cmdRun(const std::vector<std::string>& paths, bool trace, bool summary) {
         prev = modes;
       };
     }
+    if (!trace) {
+      gH->runner->observer = [&](uint32_t, const fmgc_inputs&, const fmgc_outputs& out, bool running) {
+        if (!running) {
+          return;
+        }
+        fmaModeSteps[static_cast<int>(out.athr.fma_mode)]++;
+        fmaMsgSteps[static_cast<int>(out.athr.fma_message)]++;
+        if (out.ap_fd_logic.longitudinal_modes.tcas_active) {
+          tcasSubmodeSteps[static_cast<int>(out.ap_fd_logic.active_tcas_submode)]++;
+        }
+      };
+    }
     std::set<std::string> seen;
     steps += gH->runner->run(c, [&](const Finding& f) {
       perCheck[f.check]++;
@@ -365,6 +399,19 @@ int cmdRun(const std::vector<std::string>& paths, bool trace, bool summary) {
     gH->runner->observer = nullptr;
   }
   std::printf("\n%zu inputs, %ld steps\n", files.size(), steps);
+  if (const WholeComputerOracle* w = gH->oracles->wholeComputer()) {
+    std::printf("whole_computer: %ld steps compared, %ld mismatching steps\n", w->steps(), w->mismatchSteps());
+  }
+  auto printMap = [](const char* what, const std::map<int, long>& m) {
+    std::printf("cov %-28s", what);
+    for (auto& [k, n] : m) {
+      std::printf(" %d:%ld", k, n);
+    }
+    std::printf("\n");
+  };
+  printMap("athr.fma_mode (steps)", fmaModeSteps);
+  printMap("athr.fma_message (steps)", fmaMsgSteps);
+  printMap("tcas submode while active", tcasSubmodeSteps);
   for (auto& [k, n] : perCheck) {
     std::printf("finding %-40s %ld\n", k.c_str(), n);
   }
@@ -393,7 +440,7 @@ int cmdMinimize(const std::string& check, const std::string& in, const std::stri
       t.steps = std::max<uint32_t>(32, static_cast<uint32_t>(hit) + 1);
       t = decode(encode(t).data(), encode(t).size(), gH->bank.snapshots());
       long h = firstHit(t, check);
-      if (h >= 0 && t.steps < c.steps) {
+      if (h >= 0 && cost(t) < cost(c)) {
         c = t, hit = h, changed = true;
       }
     }
@@ -403,6 +450,9 @@ int cmdMinimize(const std::string& check, const std::string& in, const std::stri
       t.events.erase(t.events.begin() + static_cast<long>(i));
       auto bytes = encode(t);
       t = decode(bytes.data(), bytes.size(), gH->bank.snapshots());
+      if (cost(t) >= cost(c)) {
+        continue;  // e.g. a gap filler the encoder puts back
+      }
       long h = firstHit(t, check);
       if (h >= 0) {
         c = t, hit = h, changed = true;
@@ -417,8 +467,11 @@ int cmdMinimize(const std::string& check, const std::string& in, const std::stri
       t.events[i].duration = std::max<uint32_t>(1, t.events[i].duration / 2);
       auto bytes = encode(t);
       t = decode(bytes.data(), bytes.size(), gH->bank.snapshots());
+      if (cost(t) >= cost(c)) {
+        continue;
+      }
       long h = firstHit(t, check);
-      if (h >= 0 && t.events[i].duration < c.events[i].duration) {
+      if (h >= 0) {
         c = t, hit = h, changed = true;
       }
     }
@@ -493,6 +546,24 @@ int cmdSeeds(const std::string& dir, int extra) {
       }
       char name[64];
       std::snprintf(name, sizeof name, "scen-%02u-%02d", rec, k);
+      write(c, name);
+      n++;
+    }
+  }
+  // TCAS RA near the FCU altitude (targets the TCAS ALT_ACQ / ALT_HOLD submodes, never reached by the injectors):
+  // FCU altitude set to the current altitude +- a little, an RA for 5-20 s, then the RA cleared
+  for (auto& [rec, snaps] : byRecording) {
+    for (int k = 0; k < 3; k++) {
+      FuzzCase c;
+      c.snapshot = snaps[rng() % snaps.size()];
+      c.steps = 1500;
+      c.seed = static_cast<uint32_t>(rng() & 0xffffff);
+      int16_t off = static_cast<int16_t>(static_cast<int>(rng() % 400) - 200);
+      c.events.push_back({0, 2160, Kind::FcuAltitude, 1, static_cast<uint16_t>(off), 0});
+      c.events.push_back({20, static_cast<uint32_t>(150 + rng() % 500), Kind::Tcas, 1,
+                          static_cast<uint16_t>(rng()), 3});
+      char name[64];
+      std::snprintf(name, sizeof name, "tcas-%02u-%d", rec, k);
       write(c, name);
       n++;
     }

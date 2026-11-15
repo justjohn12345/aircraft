@@ -11,8 +11,8 @@
 //     to this frame's generated stage results must reproduce every field of fmgc_outputs bit-exact;
 //   - AthrResyncOracle: differential, resync: the readable autothrust (readable/athr*.cpp), its state taken from the
 //     generated model before the step (src/athr_resync.h), must reproduce out.athr bit-exact;
-//   - WholeComputerOracle: STUB for the whole-computer differential (readable::FmgcComputer from the integration
-//     branch). See the comment on the class for the exact change.
+//   - WholeComputerOracle: differential, free-running: the readable whole computer (readable/fmgc.{h,cpp}) on the
+//     same inputs; every leaf of fmgc_outputs and the hidden memories (mode latches, other latches) bit-exact.
 //
 // Include src/model_access.h (or this header) before anything else that includes FmgcComputer.h.
 
@@ -37,7 +37,8 @@
 #define FMGC_WHOLE_COMPUTER 0
 #endif
 #if FMGC_WHOLE_COMPUTER
-#include "fmgc.h"  // readable/fmgc.h (integration branch)
+#include "fmgc.h"              // readable/fmgc.h: the readable whole computer
+#include "vertical_latches.h"  // generated latch memory of each mode signal
 #endif
 
 namespace fmgc::fuzz {
@@ -182,21 +183,17 @@ class AthrResyncOracle : public FuzzOracle {
 };
 
 /**
- * Whole-computer differential: STUB until the integration branch (readable/fmgc.{h,cpp}) merges.
+ * Whole-computer differential: the readable computer (readable/fmgc.{h,cpp}, fmgc::readable::FmgcComputer) steps on
+ * the same inputs as the generated model, free-running (it never sees a generated value), and every leaf of
+ * fmgc_outputs (1017 leaves, by bit pattern, so -0/+0 and NaN payloads count) is compared every step, running or not.
+ * The hidden memories that check_fmgc compares (every mode latch, the engagement / targets / A/THR / TCAS latches, the
+ * memories that survive a restart) are compared too, so a divergence is caught before it reaches an output.
  *
- * To wire it (the only changes needed):
- *   1. CMakeLists.txt: add readable/fmgc.cpp (and the stage .cpp files it needs) to FUZZ_READABLE_SOURCES and set
- *      FMGC_WHOLE_COMPUTER=1 in FUZZ_DEFINES (one place, the "fuzzing and coverage" block).
- *   2. Below, in the `#if FMGC_WHOLE_COMPUTER` branches: adapt the three calls marked ADAPT to the readable computer's
- *      API (assumed: `fmgc::readable::FmgcComputer` with `initialize()`, `fmgc_outputs step(const fmgc_inputs&)`, and a
- *      trivially copyable state; if it is not trivially copyable, give it save/load functions and call them in
- *      saveState()/begin()).
- *   3. Rebuild the bank (scripts/fuzz.sh --rebuild-bank): the bank builder runs the readable computer alongside the
- *      generated one from frame 0 of every recording and stores its state with each snapshot, so every fuzz run starts
- *      both computers from the same point. The bank header records the oracle state size; a bank built without it is
- *      rejected by the harness when this oracle is enabled.
+ * State: the readable computer has no heap and no pointers, so its bytes are a snapshot. The bank builder warms it up
+ * from frame 0 of every recording alongside the generated model (warmBegin/warmStep) and stores its bytes with each
+ * snapshot (saveState); a fuzz run restores them (begin). The corpus driver runs it from frame 0 (begin with no state).
  * Mismatches are differential findings: the harness aborts on them by default (FMGC_FUZZ_ABORT=diff), so libFuzzer
- * keeps and minimises the input.
+ * keeps and minimises the input. Built with FMGC_WHOLE_COMPUTER=1 (CMakeLists.txt FUZZ_DEFINES).
  */
 class WholeComputerOracle : public FuzzOracle {
  public:
@@ -204,14 +201,15 @@ class WholeComputerOracle : public FuzzOracle {
   static constexpr bool enabled() { return FMGC_WHOLE_COMPUTER != 0; }
 
 #if FMGC_WHOLE_COMPUTER
-  void warmBegin() override { readable_.initialize(); }                                         // ADAPT
-  void warmStep(const fmgc_inputs& in, const fmgc_outputs&) override { (void)readable_.step(in); }  // ADAPT
+  WholeComputerOracle() { readable_.initialize(); }
+  void warmBegin() override { readable_.initialize(); }
+  void warmStep(const fmgc_inputs& in, const fmgc_outputs&) override { (void)readable_.step(in); }
   void saveState(std::vector<uint8_t>& blob) const override {
-    static_assert(std::is_trivially_copyable_v<decltype(readable_)>, "give the readable computer save/load functions");
-    const auto* p = reinterpret_cast<const uint8_t*>(&readable_);
+    const auto* p = reinterpret_cast<const uint8_t*>(&readable_);  // no heap, no pointers: the bytes are the state
     blob.insert(blob.end(), p, p + sizeof(readable_));
   }
   void begin(const uint8_t* state, size_t size) override {
+    hiddenDiverged_ = false;
     if (state == nullptr) {
       return;  // the corpus driver: the readable computer was started with warmBegin() alongside the generated one
     }
@@ -223,20 +221,95 @@ class WholeComputerOracle : public FuzzOracle {
     }
   }
   void onFrame(const FrameContext& f, const FindingSink& sink) override {
-    fmgc_outputs r = readable_.step(f.in);  // ADAPT
+    const fmgc_outputs& r = readable_.step(f.in);
+    steps_++;
     const auto& table = FieldTable<fmgc_outputs>::get();
     int i = table.firstDifference(f.out, r);
     if (i >= 0) {
-      char buf[128];
-      std::snprintf(buf, sizeof buf, "generated %.9g readable %.9g", table.value(f.out, i), table.value(r, i));
+      mismatchSteps_++;
+      char buf[160];
+      std::snprintf(buf, sizeof buf, "generated %.17g readable %.17g", table.value(f.out, i), table.value(r, i));
       sink({name(), table.fields()[i].name, true, f.step, f.in.time.simulation_time, buf});
     }
+    if (!hiddenDiverged_) {
+      const char* h = firstHiddenDivergence(f.computer);
+      if (h) {
+        hiddenDiverged_ = true;  // reported once per run: a diverged memory usually stays diverged
+        sink({name(), std::string("hidden.") + h, true, f.step, f.in.time.simulation_time, "hidden memory diverged"});
+      }
+    }
   }
+  long steps() const { return steps_; }
+  long mismatchSteps() const { return mismatchSteps_; }
 
  private:
-  fmgc::readable::FmgcComputer readable_;  // ADAPT (type name)
+  /** check_fmgc's hidden-memory list (src/check_fmgc.cpp collectHidden): the first generated/readable difference. */
+  const char* firstHiddenDivergence(const FmgcComputer& gen) const {
+    namespace R = fmgc::readable;
+    const DWork& d = gen.FmgcComputer_DWork;
+    const auto& b = gen.FmgcComputer_B;
+    const R::Signals& s = readable_.modeSignals();
+    for (size_t i = 0; i < R::kSignalCount; i++) {
+      if (const boolean_T* l = latchOf(d, static_cast<R::Signal>(i))) {
+        if ((*l != 0) != s.v[i]) {
+          return R::signalName(static_cast<R::Signal>(i));
+        }
+      }
+    }
+    const auto& es = readable_.engagementStage().state();
+    const R::targets::Values& tv = readable_.targetValues();
+    const auto& am = readable_.autothrustStage().modesState();
+    const auto& ts = readable_.tcasStage().state();
+    const auto& cs = readable_.conditioningStage().state();
+    const R::OuterLoopInputState& os = readable_.outerLoopInputState();
+    struct H {
+      const char* name;
+      double g, r;
+    };
+    auto D = [](auto v) { return static_cast<double>(v); };
+    const H hs[] = {
+        {"engagement.apEngageRequest", D(d.Memory_PreviousInput), D(es.apEngageRequest.q)},
+        {"engagement.apEngaged", D(d.Delay_DSTATE_p), D(es.apEngaged.q)},
+        {"engagement.athrInhibited", D(d.Memory_PreviousInput_g1), D(es.athrInhibited.q)},
+        {"engagement.athrEngaged", D(d.Delay_DSTATE_k), D(es.athrEngaged.q)},
+        {"engagement.land3FailOpHeld", D(d.pLand3FailOp), D(es.land3FailOpHeld)},
+        {"engagement.land3FailPassiveHeld", D(d.pLand3FailPass), D(es.land3FailPassiveHeld)},
+        {"targets.manualSpeed", D(d.Memory_PreviousInput_cu), D(tv.manualSpeed)},
+        {"targets.autoSpeed", D(d.Memory_PreviousInput_hk), D(tv.autoSpeed)},
+        {"targets.machMode", D(d.Delay_DSTATE_c), D(tv.machMode)},
+        {"targets.lowerMarginActive", D(d.Memory_PreviousInput_dh), D(tv.lowerMarginActive)},
+        {"targets.vappMemoKts", D(b.u_l), D(tv.vappMemoKts)},
+        {"athr.tcasLatch", D(d.Memory_PreviousInput_jb), D(am.tcasLatch.q)},
+        {"athr.alphaFloor", D(d.Memory_PreviousInput_hu), D(am.alphaFloor.q)},
+        {"athr.thrustMode", D(d.Memory_PreviousInput_bh), D(am.thrustMode.q)},
+        {"athr.speedMode", D(d.Memory_PreviousInput_cm), D(am.speedMode.q)},
+        {"athr.retardMode", D(d.Memory_PreviousInput_ol), D(am.retardMode.q)},
+        {"athr.lvrClbArmed", D(d.Memory_PreviousInput_kr), D(am.lvrClbArmed.q)},
+        {"athr.lvrMctArmed", D(d.Memory_PreviousInput_km), D(am.lvrMctArmed.q)},
+        {"athr.n1CommandPercent", D(d.Delay_DSTATE_l), D(readable_.autothrustStage().n1State().n1CommandPercent)},
+        {"tcas.hdgVsDuringTcas", D(d.Memory_PreviousInput_e), D(ts.hdgVsDuringTcas.q)},
+        {"tcas.tcasEndedAfterHdgVs", D(d.Delay_DSTATE_o), D(ts.tcasEndedAfterHdgVs)},
+        {"conditioning.rwyHdgMemo", D(b.u_lyjj), D(cs.rwyHdgMemo)},
+        {"conditioning.inFlight5s", D(d.sf_MATLABFunction_fw.output), D(cs.inFlight5s.output)},
+        {"outerLoopInputs.locDistanceMemoNmi", D(b.u), D(os.locDistanceMemoNmi)},
+        {"outerLoopInputs.trackMemoDeg", D(b.u_lyjjl), D(os.trackMemoDeg)},
+        {"running(Runtime_MODE)", D(d.Runtime_MODE), D(readable_.running())},
+    };
+    for (const H& h : hs) {
+      if (std::memcmp(&h.g, &h.r, sizeof(double)) != 0) {
+        return h.name;
+      }
+    }
+    return nullptr;
+  }
+
+  fmgc::readable::FmgcComputer readable_;
+  bool hiddenDiverged_ = false;
+  long steps_ = 0, mismatchSteps_ = 0;
 #else
   void onFrame(const FrameContext&, const FindingSink&) override {}
+  long steps() const { return 0; }
+  long mismatchSteps() const { return 0; }
 #endif
 };
 
@@ -292,6 +365,7 @@ class OracleSet {
     }
   }
   bool needsBankState() const { return whole_ != nullptr; }
+  const WholeComputerOracle* wholeComputer() const { return whole_; }
 
   void begin(const uint8_t* state, size_t size) {
     for (auto& o : oracles_) {

@@ -19,6 +19,7 @@
 #include <memory>
 #include <string>
 
+#include "fuzz_case.h"
 #include "input_fuzzer.h"
 #include "replay_core.h"
 #include "scenario_approach.h"
@@ -131,6 +132,7 @@ int main(int argc, char** argv) {
     if (engagement) engagement->apply(in, dt, last);
     if (failures) failures->apply(in, dt);
     if (fuzzer) fuzzer->apply(in, dt);
+    sanitizeInputs(in);  // bools 0/1, enums in range, finite floats: the domain both computers are defined on
     if (oracles.needsPreStepState()) {
       std::memcpy(static_cast<void*>(pre.get()), &computer->FmgcComputer_DWork, sizeof(DWork));
     }
@@ -177,6 +179,9 @@ int main(int argc, char** argv) {
       std::printf(" --%s %ld", k.c_str(), v);
     }
     std::printf("\n\n");
+    if (const WholeComputerOracle* w = oracles.wholeComputer()) {
+      std::printf("whole_computer steps %ld mismatching steps %ld\n", w->steps(), w->mismatchSteps());
+    }
     for (auto& [k, n] : findings) {
       std::printf("finding %-40s %8ld  first: %s\n", k.c_str(), n, firstFinding[k].c_str());
     }
