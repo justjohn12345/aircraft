@@ -10,3 +10,4 @@
 2026-11-14-13-57	combined
 # 2026-11-14 ~11:36: fix/a32nx-spd-mach-sync e68013e18 installed (stock master + SPD/MACH FMS sync + FCU pb gate; FMGC model unchanged) -> replay with "stock"
 # 2026-11-15 ~10:45: test/shadow 6a0e92c24 installed (origin/master + FMGC shadow mode + SPD/MACH fix; FMGC model stock; ModelConfiguration.ini [FMGC] SHADOW_ENABLED=true) -> replay with "stock"; shadow logs <fdr>.fmgc-shadow.log in work/
+# 2026-11-15 ~13:10: 2026-11-15-18-40-33 recorded on test/shadow 6a0e92c24 -> replay with "stock"; shadow log in ~/fdr-corpus/raw
