@@ -114,3 +114,12 @@ plain replays) in `docs/properties.md`. Overlaps with sections 2–3 are noted.
 Coverage of the generated code after replay + injectors + fuzz: FmgcComputer 98.6 % of branch outcomes, FmgcOuterLoops
 91.2 % (rest mostly dead). Still unreached: TCAS ALT_HOLD submode, CLB/DES constraint paths 2776/2820/2938, THR ramp
 rate limits 4606/4608, two failure combinations (`docs/coverage.md`).
+
+## 6. Build and wrapper issues found while adding shadow mode (Phase 6a)
+
+| # | Finding | Effect | Where | Status |
+|---|---|---|---|---|
+| B1 | `rm -f "${DIR}/obj/*.o"`: the quotes stop the glob, so stale objects are never deleted and still linked by `obj/*.o` | a removed/renamed source can stay linked into fbw.wasm | `fbw-a32nx/src/wasm/fbw_a320/build.sh` | open |
+| B2 | fbw.wasm runs on wasm-ld's default 64 KiB stack with no guard; an overflow silently overwrites data | latent (measured depth 5.9 KB) | fbw.wasm link | open |
+| B3 | `Fmgc` constructors leave `monitoringHealthy`, `powerSupplyOutageTime`, `selfTestTimer`, ... uninitialised; zero only because the global `FlyByWireInterface` is zero-initialised; the copy constructor copies only `isUnit1` (never called) | latent | `fbw_a320/src/fmgc/Fmgc.{h,cpp}` | open |
+| B4 | The flight data recorder writes FMGC 1 only (`writeFmgc(fmgc2)` commented out) | FMGC 2 behaviour can't be replayed exactly | `fbw_a320/src/recording/FlightDataRecorder.cpp` | open |
