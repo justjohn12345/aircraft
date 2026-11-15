@@ -14,8 +14,8 @@
 //   - ILS: own, opposite or both G/S and/or LOC word failed / NCD; the runway heading word not normal or changed;
 //     back beam selected;
 //   - FAC: own / opposite / both unhealthy; discrete word 2 yaw damper (bit 11) and rudder trim (bit 13) bits cleared
-//     or set in one or both FACs; discrete word 5 failed / NCD, all LGCIUs lost (17), all SFCCs lost (22), random flap
-//     lever bits (11–15); main gear bits (18/19) set or cleared (ground/flight transitions around the 5 s confirm);
+//     or set in one or both FACs, or engaged in one FAC only; discrete word 5 failed / NCD, all LGCIUs lost (17),
+//     all SFCCs lost (22), random flap lever bits (11–15); main gear bits (18/19) set or cleared (ground/flight transitions around the 5 s confirm);
 //     VLS / VMAX / VMAN / CG / weight words failed or NCD;
 //   - FCU: own / opposite / both unhealthy; EIS discrete word 2 (left and right) STD bit 28 set or cleared, word failed
 //     / NCD;
@@ -154,7 +154,8 @@ struct ConditioningScenario {
           break;
         case FacWord2:
           f.mask = 1 + irand(3);
-          f.scope = irand(4);  // 0 yaw damper cleared, 1 rudder trim cleared, 2 both cleared, 3 both set
+          f.scope = irand(6);  // 0 yaw damper cleared, 1 rudder trim cleared, 2 both cleared, 3 both set,
+                               // 4/5 yaw damper/rudder trim engaged in the masked FACs only (cleared in the others)
           break;
         case FacWord5:
           f.mask = 1 + irand(3);
@@ -289,8 +290,10 @@ struct ConditioningScenario {
           break;
         case FacWord2:
           for (int i = 0; i < 2; i++) {
-            if (f.mask & (1 << i)) {
-              base_arinc_429& w = i == 0 ? b.fac_own_bus.discrete_word_2 : b.fac_opp_bus.discrete_word_2;
+            base_arinc_429& w = i == 0 ? b.fac_own_bus.discrete_word_2 : b.fac_opp_bus.discrete_word_2;
+            if (f.scope >= 4) {
+              setBit(w, f.scope == 4 ? 11 : 13, (f.mask & (1 << i)) != 0);
+            } else if (f.mask & (1 << i)) {
               if (f.scope == 0 || f.scope == 2) setBit(w, 11, false);
               if (f.scope == 1 || f.scope == 2) setBit(w, 13, false);
               if (f.scope == 3) {

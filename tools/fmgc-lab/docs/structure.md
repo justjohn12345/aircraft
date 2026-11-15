@@ -121,3 +121,12 @@ output `Delay_DSTATE_c` at 5115); 3562–3566 FCU Mach → CAS; 3567–3620 spee
 on restart; `vMemoGa`, `vMemoEo`); 3580–3598 manoeuvring speed floor; 3623–3648 SRS targets; 3650–3659 DES lower-margin
 latch (dh); 3660–3711 speed target selection: `rtb_Nosewheel_c` = V_c (`spd_target_kts`, unchanged until 4017) and
 `pfd_spd_target_kts`; 3713–3735 ALT soft (ak). `alt_sel_or_cstr` is not in this block (1636–1664).
+
+Corrections from the input conditioning rewrite (`docs/conditioning.md`, `readable/conditioning.cpp`): the
+conditioning is 695–1379, not ~700–1630 (it ends where the engagement starts, 1380). Order: ADR validity and vote
+(695–720), IR validity and vote (721–771), ADR selection (772–845), indicated altitude (847–864), IR selection
+(866–1074), RA (1076–1100), FAC selection (1101–1213), FAC rudder control (1215–1241), FAC speeds/weights, on ground,
+5 s in-flight confirm `sf_MATLABFunction_fw`, flap lever (1242–1307), engines/FCU (1308–1313), ILS (1314–1346), TCAS
+(1350–1364), ILS tune inhibit and the runway heading memory `FmgcComputer_B.u_lyjj` (1365–1379; reset by
+`initialize()` only). Part of the logic bus is written at selection time (781–1364), the rest at 3864–3971; no
+conditioning temporary is reassigned in between. The LOC deviation reaches the bus through the copy made at 1720.
