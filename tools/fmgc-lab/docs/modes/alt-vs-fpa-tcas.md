@@ -320,6 +320,11 @@ decided by which set condition stays true longer (inferred; see the CLB doc). Th
 Readable: `readable/vertical_alt.cpp`, signals `AltCstrApplicable` and `AltSelOrCstr` (the first two of the vertical
 update order, value in `Signals::altSelOrCstr`); compared by `check_vertical` like every other signal (the target
 bit-exact as a double), 0 mismatches over the 374-run corpus check.
+Mutation test (throwaway generator, 41 compiled mutants of these two signals): 1 equivalent (the coverage bool of
+`AltSelOrCstr`), 29 caught by the corpus runs with seed 1, 6 more with seeds 2–5 (LOC*/LOC in `levelAtCstr`,
+`vertical_flight_plan_valid`, the climbing-side margin sign, `&&`→`||` on the descending side); 5 survive, all
+exact-equality boundaries of float comparisons (`fcuAlt > h`, `cstr + 250 > h`, `cstr < fcuAlt`, `cstr > fcuAlt`,
+`cstr − 250 < h` with `>=`/`<=`).
 
 ```
 capturingCst = (ALT*_last ∨ ALT_last) ∧ alt_cstr_applicable_last

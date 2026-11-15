@@ -17,9 +17,9 @@ outline below is read from the code; per-mode detail is in `docs/modes/`, law de
 | 3983–4030 | ap_fd_logic output bus | mode flags copied from the latches (see `docs/latches.tsv`) |
 | 4138–4170 | `LawMDLOBJ1.step(...)` | FmgcOuterLoops: all control laws, with H_c = `alt_sel_or_cstr`, V_c = `spd_target_kts` |
 | 4180–4330 | autothrust | A/THR engage, THR / SPEED / RETARD mode latches (hu, bh, cm, ol), alpha floor, N1 command |
-| 4640–4925 | output buses | FMGC A/B bus words; discrete words packed with `MATLABFunction_gy` (19 bools → bits 10–28) |
-| 4926–4960 | outputs | `FmgcComputer_Y.out = ...` |
-| 5100–5120 | delays | `Delay_DSTATE = ap_fd_logic` (so next frame's conditions see this frame's modes), `Delay2_DSTATE`, `Delay1_DSTATE` |
+| 4642–4925 | output buses | FMGC A/B bus words; discrete words packed with `MATLABFunction_gy` (19 bools → ARINC bits 11–29) |
+| 4926–5106 | outputs | `FmgcComputer_Y.out = ...` |
+| 5107–5128 | delays | `Delay_DSTATE = ap_fd_logic` (so next frame's conditions see this frame's modes), `Delay2_DSTATE`, `Delay1_DSTATE` |
 
 ## Law selection (3740–3792)
 
@@ -121,3 +121,34 @@ output `Delay_DSTATE_c` at 5115); 3562–3566 FCU Mach → CAS; 3567–3620 spee
 on restart; `vMemoGa`, `vMemoEo`); 3580–3598 manoeuvring speed floor; 3623–3648 SRS targets; 3650–3659 DES lower-margin
 latch (dh); 3660–3711 speed target selection: `rtb_Nosewheel_c` = V_c (`spd_target_kts`, unchanged until 4017) and
 `pfd_spd_target_kts`; 3713–3735 ALT soft (ak). `alt_sel_or_cstr` is not in this block (1636–1664).
+
+Corrections from the altitude target and output packing rewrite (`docs/output-buses.md`, `readable/output_packing.cpp`):
+the altitude target (`alt_cstr_applicable`, `alt_sel_or_cstr`, 1636–1664) is now readable with the vertical modes
+(`vertical_alt.cpp`, the first two signals). The A/THR ends at 4641 (N1 command select); 4642–4714 are the value-word
+SSM decisions, 4716–4925 the nine discrete words (dw5, dw4, FLX SSM, ATS, ATS FMA, dw3, dw1, dw2, dw6, margin SSM,
+dw7), 4926–4956 copy the stage results (`data`, `logic`, `ap_fd_logic`, outer loops, `athr`), 4957–4963 the discrete
+outputs, 4964–5052 the A bus values, 5053–5106 the B bus, 5107–5128 the delays. The packing has no state.
+`MATLABFunction_gy` element i is ARINC bit i + 11 (consumers number bits from 1), so "bits 10–28" above were shifts.
+
+Integration notes (chaining the readable stages into one step()):
+- Order of the readable stages: input conditioning (logic) → engagement stage 1 (1380–1559) → altitude target and the
+  vertical/lateral mode signals (1636–3330, `VerticalModeLogic`, in `Signal` order) → engagement stage 2 (3335–3403) →
+  targets (3405–3735) → law selection (3736–3792) → LAND capability (3796–3863) → outer loops (`LawMDLOBJ1.step`,
+  4138) → A/THR modes and N1 (4180–4641) → output packing (`output::assemble`) → end-of-step delays.
+- The packing reads only this frame's results: `data` (= inputs), `logic` (ap/fd/athr own engaged, AP and A/THR inop,
+  ILS tune inhibit, rwy heading memo, selected ADR/IR/RA/FAC words), all of `ap_fd_logic` (modes, armed modes, flags,
+  LAND capability, `pfd_spd_target_kts`, `alt_cstr_applicable`, TCAS flags, `tla_to_ga_set`), the outer-loop FD and AP
+  commands and `Nosewheel_c`, and `athr` (flags, FMA mode/message, N1 command). The ATS word uses the A/THR latches
+  after their update this frame (= `athr.*`), and `mach_control_active` from the targets.
+- Previous-frame values: `Delay_DSTATE` = this frame's whole `ap_fd_logic` (every stage's `last`); `Delay1_DSTATE` =
+  `athr`; `Delay2_DSTATE` = the outer-loop outputs (LOC* reads the previous `Phi_loc_c`); `Memory_PreviousInput_g/_p`
+  = the AP / A/THR engaged latches (engagement); `DelayInput1_DSTATE(_n)` = `next_alt_cstr_ft` (CLB/DES);
+  `DelayInput1_DSTATE_b` (G/S DetectDecrease), `Delay_DSTATE_fe` (targets' first frame), `Memory_PreviousInput_bo`
+  (SPD/MACH latch), `Memory_PreviousInput_jb` (A/THR TCAS latch), `icLoad`/`Delay_DSTATE_f` (N1 integrator) each belong
+  to their stage. `check_output` verifies these relationships every frame.
+- Temporaries reused across the packing (only matters when reading the generated code): `rtb_y_i3` holds dw5 then dw4
+  (and the FCU altitude before 1664), `rtb_y_a` the ATS FMA word then dw3, `rtb_DataTypeConversion2_g` dw6 then dw7,
+  `rtb_DataTypeConversion_cm` the altitude target (1660), then the IR pitch (4055), then the AP Θ_c (4203, packed as
+  `delta_q`), `rtb_DataTypeConversion1_l` the IR roll then the AP Φ_c (ail/splr), `rtb_Switch1_n` the AP Φ_c, then the
+  N1 command, `rtb_y_er` / `rtb_OR1_fl` A/THR active / limited, `rtb_y_ag` / `rtb_y_js` the A/THR FMA mode / message,
+  `rtb_Switch9` the speed-margin SSM.

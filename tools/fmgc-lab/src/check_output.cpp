@@ -318,7 +318,8 @@ int main(int argc, char** argv) {
       auto athr = post.Delay1_DSTATE;  // previous A/THR outputs
       visit(delays, "Delay1_DSTATE.", out.athr, athr);
       delays.check("DelayInput1_DSTATE(next_alt_cstr_ft)", in->fms_inputs.next_alt_cstr_ft, post.DelayInput1_DSTATE);
-      delays.check("DelayInput1_DSTATE_n(next_alt_cstr_ft)", in->fms_inputs.next_alt_cstr_ft, post.DelayInput1_DSTATE_n);
+      delays.check("DelayInput1_DSTATE_n(next_alt_cstr_ft)", in->fms_inputs.next_alt_cstr_ft,
+                   post.DelayInput1_DSTATE_n);
       delays.check("Delay_DSTATE_fe(first frame = 0)", 0.0, static_cast<double>(post.Delay_DSTATE_fe));
       delays.check("Memory_PreviousInput_g(AP engaged)", static_cast<int>(post.Delay_DSTATE_p),
                    static_cast<int>(post.Memory_PreviousInput_g));
