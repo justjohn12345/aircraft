@@ -146,6 +146,42 @@ foreach(variant ${MODEL_VARIANTS})
   target_link_libraries(fmgc-check-fmgc-${name} PRIVATE fmgc_readable_${name} fmgc_model_${name} ZLIB::ZLIB -static)
 endforeach()
 
+# ---- Phase 6a: shadow mode in the sim ---------------------------------------------------------------------------------
+# The fbw_a320 wasm module compiles every readable/*.cpp except the tests (fbw_a320/build.sh); keep that list equal to
+# the readable computer library above.
+file(GLOB readable_all RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/readable/*.cpp)
+list(FILTER readable_all EXCLUDE REGEX "_test\\.cpp$")
+set(readable_lib ${READABLE_COMPUTER_SOURCES})
+list(SORT readable_all)
+list(SORT readable_lib)
+if(NOT readable_all STREQUAL readable_lib)
+  message(FATAL_ERROR "READABLE_COMPUTER_SOURCES differs from readable/*.cpp minus *_test.cpp (what the wasm build compiles)")
+endif()
+
+# The committed leaf table of the shadow checker must match the repo's FmgcComputer_types.h.
+set(SHADOW_SRC ${WASM_SRC}/fmgc)
+add_custom_command(
+  OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/shadow-leaves.checked
+  COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_leaf_table.py ${WASM_SRC}/model/FmgcComputer_types.h
+          ${SHADOW_SRC}/FmgcOutputLeaves.gen.h --check
+  COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_CURRENT_BINARY_DIR}/shadow-leaves.checked
+  DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_leaf_table.py ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_fields.py
+          ${WASM_SRC}/model/FmgcComputer_types.h ${SHADOW_SRC}/FmgcOutputLeaves.gen.h)
+add_custom_target(fmgc-shadow-leaves-check ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/shadow-leaves.checked)
+
+# Native driver and test of the sim's shadow checker (the same FmgcShadow.cpp the wasm module compiles), per variant.
+foreach(variant ${MODEL_VARIANTS})
+  string(REPLACE "=" ";" parts ${variant})
+  list(GET parts 0 name)
+  set(gen_dir ${CMAKE_CURRENT_BINARY_DIR}/gen-${name})
+  add_executable(fmgc-shadow-test-${name} src/shadow_test.cpp ${SHADOW_SRC}/FmgcShadow.cpp ${gen_dir}/fields.gen.h)
+  add_dependencies(fmgc-shadow-test-${name} fmgc-shadow-leaves-check)
+  target_include_directories(fmgc-shadow-test-${name} PRIVATE ${gen_dir} ${WASM_SRC} ${SHADOW_SRC} src
+    ${CMAKE_CURRENT_SOURCE_DIR})
+  target_compile_options(fmgc-shadow-test-${name} PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(fmgc-shadow-test-${name} PRIVATE fmgc_readable_${name} fmgc_model_${name} ZLIB::ZLIB -static)
+endforeach()
+
 # Control-law checks (Phase 3): an instrumented copy of the stock model (outer-loop call hooks and probes), never the
 # repo's model/ folder. Built when a variant named "stock" exists.
 foreach(variant ${MODEL_VARIANTS})
