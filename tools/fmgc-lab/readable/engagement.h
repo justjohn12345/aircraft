@@ -191,6 +191,7 @@ class Engagement {
   void updateLandCapability(const Stage3Inputs& in, Outputs& out);
 
   State& state() { return s_; }
+  const State& state() const { return s_; }
 
  private:
   State s_;

@@ -137,6 +137,8 @@ class Autothrust {
 
   ModesState& modesState() { return modes_; }
   N1State& n1State() { return n1_; }
+  const ModesState& modesState() const { return modes_; }
+  const N1State& n1State() const { return n1_; }
 
  private:
   ModesState modes_;
