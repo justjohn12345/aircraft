@@ -88,3 +88,29 @@ public FCOM text are marked "to verify" in the stage docs.
 Inputs never read by `step()`: `mcdu_own/opp_fail`, `nav_control_own/opp`, `adc_3_switch`, `att_3_switch`,
 `nose_gear_pressed_own/opp` (`docs/conditioning.md` 14). Outputs packed but read by nobody, and documented bits never
 packed: `docs/output-buses.md` 6–7.
+
+## 5. Property violations found by fuzzing (Phase 4)
+
+Checked against the generated stock model by `src/properties.h` (40 properties); reproducers (hex fuzz inputs or
+plain replays) in `docs/properties.md`. Overlaps with sections 2–3 are noted.
+
+| # | Finding | Effect | Reproducer | Status |
+|---|---|---|---|---|
+| P1 | **V/S engages on the ground**: the V/S reversion paths (ALT* target change, DES with FCU above, ...) have no ground/airborne gating | V/S active after landing | plain replay 2026-11-08-01-19-49 t 3559.6 | open |
+| P2 | **NaN outputs**: `Phi_loc_c` = … / ground speed is NaN at standstill (fed back to LOC* through the outer-loop delay); `flare_law.H_dot_c_fpm` NaN/inf when FLARE engages at RA 0 (tau = 0) | NaN on the outer-loop bus; FD/AP commands stayed finite | plain replay 2026-11-08-01-12-39 step 0; fuzz | open |
+| P3 | NAV engages on the first frame after a short power cut (FD kept engaged, NAV capture true) | mode on the restart frame | fuzz (properties.md) | open |
+| P4 | DES engages from G/S* (the DES set condition doesn't exclude G/S*/G/S) | DES taking over a glideslope capture | `--approach 1` 2026-11-09-18-55-35 t 2251.7 | open |
+| P5 | CLB engages in the GOAROUND phase (only DES/APPR phases excluded) | CLB with SRS GA | `--approach 2 --athr 2` 2026-11-09-18-55-35 t 1040 | open (cf. climb-descent.md 2) |
+| P6 | Managed speed target above VMAX (e.g. 250 kt with flaps VMAX 215) | target overspeed with flaps | plain replay 2026-11-08-01-19-49 t 896.5 | open (= targets.md 8) |
+| P7 | SRS takeoff target outside [V2, V2+15]: the approach-speed branch outranks SRS TO; V2 changes move the target | wrong SRS target in edge cases | `--approach 1` replay; fuzz | open |
+| P8 | RETARD latched outside LAND; RETARD at 40 ft (doc 30 ft) | RETARD in a non-autoland flare | properties.md | open (= athr-modes.md 7) |
+| P9 | ROLL OUT without FLARE; FLARE above 80 ft RA (fuzz only) | mode order not enforced | properties.md | open |
+| P10 | A/THR active with no mode and a blank FMA after opposite-FMGC sync ends | blank A/THR FMA | fuzz | open |
+| P11 | Mode overlaps: one-frame handovers (expected, F19); V/S+TCAS 1.4 s at RA end; LOC*+LOC+HDG > 1 s; SRS GA with no AP/FD for 0.74 s | brief double FMA modes | properties.md | open |
+| P12 | Selected speed target 0 kt (dashed window, Mach with no static pressure) or 416 kt from raw FCU words | out-of-range V_c | plain replay 2026-11-08-01-19-49 t 252.8 | open (= F10) |
+| P13 | ALT engages within 40 ft (FBW docs say 20 ft) | doc difference | plain replay | doc |
+| P14 | SRS FD pitch 19.7° with degraded air data (the 120 ft/min minimum-climb term beats the 18° limit) | by design of the median | fuzz | open |
+
+Coverage of the generated code after replay + injectors + fuzz: FmgcComputer 98.6 % of branch outcomes, FmgcOuterLoops
+91.2 % (rest mostly dead). Still unreached: TCAS ALT_HOLD submode, CLB/DES constraint paths 2776/2820/2938, THR ramp
+rate limits 4606/4608, two failure combinations (`docs/coverage.md`).
