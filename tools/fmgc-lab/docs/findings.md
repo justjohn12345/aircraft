@@ -52,6 +52,9 @@ Details: `docs/output-buses.md` (Findings 8–15), `docs/conditioning.md` (5), `
 | F17 | ILS without DME treated as 2 nm | LOC* cross-beam term under-scaled | `docs/laws/lateral.md` | open |
 | F18 | Managed speed can engage (0.72 s) by SPD push/EXP/SRS with no AP/FD | brief selected+managed overlap | `docs/modes/targets.md` (1) | open |
 | F19 | One-frame overlap of longitudinal modes on handover (resets read previous-frame modes) | two vertical mode flags true for one frame | `docs/modes/climb-descent.md` (6) | open, harmless? |
+| F20 | In DES, the outer loops' FPA target is `fms_inputs.vs_target_ft_min` (the V/S target field) | DES FPA_SPEED submode would fly a V/S number as an angle | `docs/integration.md` | open |
+| F21 | `tcas_ra_corrective` is true when there is no RA | harmless while TCAS mode is off; misleading flag | `docs/integration.md` | open |
+| F22 | Eight memories survive a restart (rwy heading, VAPP, ALT* and TCAS ALT_ACQ targets, ILS DME, GA/RWY TRK track, ALT hold target); the sim wrapper never calls `initialize()` after construction and `clearMemory()` is empty | they survive any power outage in the sim; a restart in GA TRK flies the track memorised before the stop | `docs/integration.md` (state inventory), `fmgc/Fmgc.cpp` | open |
 
 ## 3. Differences from the real aircraft (FCOM), by area
 
