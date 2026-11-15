@@ -105,6 +105,18 @@ foreach(variant ${MODEL_VARIANTS})
   target_link_libraries(fmgc-check-targets-${name} PRIVATE fmgc_model_${name} ZLIB::ZLIB -static)
 endforeach()
 
+# Output packing check (Phase 5e): FMGC A/B buses, discrete words, discrete outputs, fmgc_outputs assembly and the
+# end-of-step delays.
+foreach(variant ${MODEL_VARIANTS})
+  string(REPLACE "=" ";" parts ${variant})
+  list(GET parts 0 name)
+  set(gen_dir ${CMAKE_CURRENT_BINARY_DIR}/gen-${name})
+  add_executable(fmgc-check-output-${name} src/check_output.cpp readable/output_packing.cpp ${gen_dir}/fields.gen.h)
+  target_include_directories(fmgc-check-output-${name} PRIVATE ${gen_dir} ${WASM_SRC} src readable)
+  target_compile_options(fmgc-check-output-${name} PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(fmgc-check-output-${name} PRIVATE fmgc_model_${name} ZLIB::ZLIB -static)
+endforeach()
+
 # Control-law checks (Phase 3): an instrumented copy of the stock model (outer-loop call hooks and probes), never the
 # repo's model/ folder. Built when a variant named "stock" exists.
 foreach(variant ${MODEL_VARIANTS})
