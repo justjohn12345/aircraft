@@ -240,7 +240,7 @@ WORKERS=4 TIME=3600 scripts/fuzz.sh --coverage   # libFuzzer campaign -> build/f
   code without libFuzzer: `run [--trace] [--summary]`, `minimize CHECK IN OUT`, `seeds DIR`, `info`.
 - **Oracles** (`src/fuzz_oracle.h`, every step): the behavioural properties (`src/properties.h`, `docs/properties.md`),
   the stateless differential check of the readable output packing, the resync differential check of the readable
-  A/THR, and the stub for the whole-computer differential (`WholeComputerOracle`: what to change is in its comment).
+  A/THR, and the whole-computer differential against the readable computer (below).
   Property violations are findings about stock behaviour (reproducers in `build/fuzz/findings`); differential
   mismatches abort (`FMGC_FUZZ_ABORT=diff`, default) so libFuzzer keeps the input.
 - **Corpus property check**: `JOBS=4 scripts/properties-corpus.sh` runs the gcc driver with the oracles over the corpus
@@ -258,9 +258,17 @@ changes one parameter of one event; insertions shift whole events). Reset strate
 all workers; a run restores the 10 KB model state with one `memcpy` (the generated class has no pointers) and reads the
 window's inputs in place, so there is no per-input replay from frame 0 and no allocation beyond the injector objects.
 
-Plugging in the whole-computer differential (after the integration branch merges): in `CMakeLists.txt` add the
-readable computer's sources to `FUZZ_READABLE_SOURCES` and set `FUZZ_DEFINES` to `FMGC_WHOLE_COMPUTER=1`; adapt the
-three `ADAPT` lines of `WholeComputerOracle` in `src/fuzz_oracle.h` to its API; rebuild (`scripts/build-fuzz.sh`) and
-rebuild the bank (`scripts/fuzz.sh --rebuild-bank`, so each snapshot also stores the readable computer's state, warmed
-up alongside the generated one from frame 0). The corpus driver then compares the full `fmgc_outputs` every step of
-every corpus run, and the fuzzer every step of every input; mismatches abort and are minimised like crashes.
+Whole-computer differential (`WholeComputerOracle`, `FMGC_WHOLE_COMPUTER=1`): the readable computer
+(`readable/fmgc.{h,cpp}`, linked as `fmgc_readable_<variant>`) runs free on the same inputs; every leaf of
+`fmgc_outputs` and the hidden memories `check_fmgc` compares are checked by bit pattern every step, running or not. The
+bank stores the readable computer's bytes with each snapshot (warmed up alongside the generated model from frame 0;
+rebuild the bank with `scripts/fuzz.sh --rebuild-bank` after changing either computer), and `fmgc-fuzz-bank` checks
+that a generated model restored from snapshot bytes steps exactly like the replayed one (output leaves, 2000 steps per
+snapshot). The corpus driver runs it from frame 0 of every corpus run. Inputs are sanitised to the domain both models
+are defined on (`sanitizeInputs` in `src/fuzz_case.h`: bools 0/1, enums in range, finite floats, 0 < dt ≤ 1 s).
+Minimise a set of reproducers with `scripts/minimize-findings.sh [FINDINGS_DIR] [OUT_DIR]`. libFuzzer's time box
+is wall-clock time: if the host suspends the WSL VM, the suspension counts as fuzzing time and the inputs running at
+that moment are saved as `timeout-` / `slow-unit-` artifacts (check `uptime` against the log before chasing them).
+
+Results (coverage numbers, unreached branches by subsystem, campaigns, property status and reproducers):
+`docs/coverage.md`, `docs/properties.md`.

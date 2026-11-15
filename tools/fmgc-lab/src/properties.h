@@ -171,7 +171,7 @@ class Properties {
     // airborne for more than 5 s (the aircraft was flying). sinceStartS_: time since the model (re)started running, for
     // the mode logic's own 5 s confirmation nodes, which restart with it.
     if (wasOff_) {
-      sinceStartS_ = 0;
+      sinceStartS_ = dt_;  // the generated confirm nodes count the restart frame's dt
       if (!onGround && airborneS_ >= 0 && airborneS_ < 1e8) {
         airborneS_ += offS_;  // still flying during the power cut
       }
@@ -186,7 +186,7 @@ class Properties {
       airborneS_ += dt_;
     }
     offS_ = 0;
-    constexpr double kFrameTol = 0.05;  // one frame of slack on the 5 s timers
+    const double kFrameTol = std::fmax(0.05, dt_);  // one frame of slack on the 5 s timers
     bool airborneKnown = airborneS_ >= 0;
     bool airborne5 = (airborneKnown ? airborneS_ >= 5.0 - kFrameTol : true) || engStoppedGround;
     bool confirm5 = !onGround && sinceStartS_ >= 5.0 - kFrameTol &&
@@ -553,8 +553,10 @@ class Properties {
 
  private:
   static double valueOr(const base_arinc_429& w, double d) { return w.SSM == 3 ? w.Data : d; }
+  /** Discrete word bits as the generated BitfromLabel reads them: round the float, then the 32-bit pattern. */
   static uint32_t word(const base_arinc_429& w) {
-    return w.Data >= 0.0F && w.Data < 4294967296.0F ? static_cast<uint32_t>(w.Data) : 0u;
+    float r = std::round(w.Data);
+    return r < 4294967296.0F ? (r >= 0.0F ? static_cast<uint32_t>(r) : 0u) : 0xffffffffu;
   }
   static bool bit(uint32_t w, int n) { return (w >> (n - 1)) & 1u; }
   static std::string num(double v) {
@@ -629,7 +631,9 @@ class Properties {
     double tol = list()[id].toleranceS;
     badFrames_[id]++;
     badFor_[id] += dt_;
-    bool over = tol < 0 ? badFrames_[id] > -tol : (tol == 0 || badFor_[id] > tol);
+    // time tolerances get two frames of slack: the generated timers (0.72 s guards) count whole frames, which at the
+    // fuzzer's large time steps (up to 1 s) stretch an overlap beyond its nominal length
+    bool over = tol < 0 ? badFrames_[id] > -tol : (tol == 0 || badFor_[id] > tol + 2 * dt_);
     if (over && !inViolation_[id]) {
       inViolation_[id] = true;
       s.violations++;
