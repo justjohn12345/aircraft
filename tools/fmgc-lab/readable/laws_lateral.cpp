@@ -96,6 +96,7 @@ constexpr double kRollOutCommandGain = 2.3999999999999999;  // two identical cop
 
 // ---- Output stage
 constexpr double kFdPhiLagC1 = 2;          // rad/s
+constexpr double kNegate = -1;             // FD roll sign gains (see the FD roll command)
 constexpr double kApRollRateDegS = 5;      // AP roll command rate ...
 constexpr double kApRollRateLocDegS = 7.5; // ... in LOC_CPT, LOC_TRACK, ROLL_OUT
 constexpr double kApRollRateChange = 2.5;  // deg/s per s
@@ -430,8 +431,10 @@ bool LateralLaws::computeOutputs(const ap_laws_output& in, const LateralCommand 
                           ? output_.bankLimitDeg
                           : (phiCmd >= -output_.bankLimitDeg ? phiCmd : -output_.bankLimitDeg);  // NaN -> -limit
 
-  // ---- FD: roll error, lagged
-  out.fdPhiDeg = output_.fdPhiLag.update(phiLimited - phi, kFdPhiLagC1, dt);
+  // ---- FD: roll error, lagged. The generated code negates the error into the lag filter and negates its output
+  // (Gain_Gain_lv = Gain_Gain_on = -1): the same value except the sign of an exact zero (x + -x = +0 either way), so
+  // it is kept to stay bit-exact (the filter holds the negated error).
+  out.fdPhiDeg = kNegate * output_.fdPhiLag.update(kNegate * (phiLimited - phi), kFdPhiLagC1, dt);
 
   // ---- sideslip and nosewheel
   out.apBetaDeg = cmd[selected].beta;
