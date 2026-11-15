@@ -14,7 +14,7 @@ These are in FBW's TypeScript/C++ consumers, not in the generated model, so they
 
 | # | Finding | Effect in the sim | Where | Status |
 |---|---|---|---|---|
-| C1 | FMA borders read FLARE from discrete word 2 bit 25, which is ALIGN; FLARE is word 1 bit 25 | FMA border logic sees ALIGN (below 30 ft) as FLARE, and misses the real FLARE above it | `PFD/FMA.tsx:147` | open, checked |
+| C1 | FMA borders read FLARE from discrete word 2 bit 25, which is ALIGN; FLARE is word 1 bit 25 | none (latent): the border test reduces to "LAND or ROLL OUT"; LAND stays set through FLARE and ROLL OUT and both FLARE and ALIGN need LAND, so either bit gives the same result. FLARE text reads the right bit (FMA.tsx:1391) | `PFD/FMA.tsx:147` | open, checked, latent |
 | C2 | FMA longitudinal mode-reversion box reads discrete word 3 bit 18, never packed; the FMGC packs the reversion at word 4 bit 28 | reversion box condition never fires from the reversion | `PFD/FMA.tsx:973` | open, checked |
 | C3 | Vertical-mode shim has no ALT CRZ case (ALT/ALT* need `!dw1 b26`) | `A32NX_FMA_VERTICAL_MODE` = 0 in ALT CRZ; the PFD is fine, but Phase.ts and VerticalProfileManager.ts read the shim | `FlyByWireInterface.cpp` ~1959–1973 | open |
 | C4 | FMA reads ATS FMA word bit 29 ("MAN DTO"), never packed | that indication can never show | `PFD/FMA.tsx:523` | open |
