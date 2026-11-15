@@ -167,3 +167,24 @@ Every leaf of the logic bus (172: each ARINC word's SSM and data, floats bit for
 injects sensor and equipment failures (`src/scenario_conditioning.h`): SSM FW/NCD/FT on one, two or three ADRs/IRs,
 RA/ILS/FAC/FCU/TCAS failures, discrete flips, thresholds and glitches around the 5 s confirmation. The report lists
 per-leaf mismatches, changes and steps true, and how often each selection branch was taken.
+
+## Phase 5f: altitude target and output packing
+
+The altitude target (`alt_cstr_applicable` / `alt_sel_or_cstr`) is computed by the readable vertical logic
+(`readable/vertical_alt.cpp`, signals `AltCstrApplicable` and `AltSelOrCstr`) and compared by `check_vertical` like
+the other signals.
+
+`readable/output_packing.{h,cpp}`: everything from the stage results to `FmgcComputer_Y.out`: one function per FMGC
+A/B bus discrete word (bit tables in the comments; ARINC bit numbers, 1-based), the value words with their SSM rules,
+the B bus, the discrete outputs and the assembly. Spec, word/bit tables, consumers and findings: `docs/output-buses.md`.
+
+```sh
+build/fmgc-check-output-stock [--fuzz SEED] [--approach SEED] [--athr SEED] [--lateral SEED] [--engagement SEED] \
+  [--targets SEED] file.fdr
+JOBS=4 scripts/check-output-corpus.sh [runs per file]
+```
+
+The packing has no state, so there is no resync/free mode: every running frame, `assemble()` gets the generated
+stage results and every field of `fmgc_outputs` is compared bit-exact (SSMs as integers, Data by bit pattern); also
+checked: `out.data` = the step's inputs, and what the end-of-step delays hold. The report lists per-word SSM counts and
+per-bit steps/rises; the corpus script lists the bits never set (only spares) over all runs.

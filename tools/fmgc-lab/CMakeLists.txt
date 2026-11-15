@@ -94,7 +94,7 @@ foreach(variant ${MODEL_VARIANTS})
   target_link_libraries(fmgc-blocks-test-${name} PRIVATE fmgc_model_${name} -static)
 endforeach()
 
-# Targets block check (Phase 5c): HDG/TRK preset, selected/managed speed, Mach, speed targets, ALT soft mode.
+# Targets block check (Phase 5d): HDG/TRK preset, selected/managed speed, Mach, speed targets, ALT soft mode.
 foreach(variant ${MODEL_VARIANTS})
   string(REPLACE "=" ";" parts ${variant})
   list(GET parts 0 name)
@@ -106,6 +106,8 @@ foreach(variant ${MODEL_VARIANTS})
 endforeach()
 
 # Input conditioning check (Phase 5e): source selection, voting and failure flags (the logic bus).
+# Output packing check (Phase 5f): FMGC A/B buses, discrete words, discrete outputs, fmgc_outputs assembly and the
+# end-of-step delays.
 foreach(variant ${MODEL_VARIANTS})
   string(REPLACE "=" ";" parts ${variant})
   list(GET parts 0 name)
@@ -115,6 +117,10 @@ foreach(variant ${MODEL_VARIANTS})
   target_include_directories(fmgc-check-conditioning-${name} PRIVATE ${gen_dir} ${WASM_SRC} src readable)
   target_compile_options(fmgc-check-conditioning-${name} PRIVATE -O2 -ffp-contract=off)
   target_link_libraries(fmgc-check-conditioning-${name} PRIVATE fmgc_model_${name} ZLIB::ZLIB -static)
+  add_executable(fmgc-check-output-${name} src/check_output.cpp readable/output_packing.cpp ${gen_dir}/fields.gen.h)
+  target_include_directories(fmgc-check-output-${name} PRIVATE ${gen_dir} ${WASM_SRC} src readable)
+  target_compile_options(fmgc-check-output-${name} PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(fmgc-check-output-${name} PRIVATE fmgc_model_${name} ZLIB::ZLIB -static)
 endforeach()
 
 # Control-law checks (Phase 3): an instrumented copy of the stock model (outer-loop call hooks and probes), never the
