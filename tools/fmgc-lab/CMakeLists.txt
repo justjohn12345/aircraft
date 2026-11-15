@@ -160,3 +160,86 @@ foreach(variant ${MODEL_VARIANTS})
   target_compile_options(fmgc-check-laws PRIVATE -O2 -ffp-contract=off)
   target_link_libraries(fmgc-check-laws PRIVATE fmgc_model_stock_hooked ZLIB::ZLIB -static)
 endforeach()
+
+# ---- Phase 4: corpus driver, fuzzing and coverage ---------------------------------------------------------------------
+# Readable stages the fuzz oracles use in-harness (stateless / resync differential checks). After the integration merge,
+# add the whole readable computer here and set FMGC_WHOLE_COMPUTER=1 (see src/fuzz_oracle.h, WholeComputerOracle).
+set(FUZZ_READABLE_SOURCES readable/output_packing.cpp readable/athr.cpp readable/athr_modes.cpp readable/athr_n1.cpp)
+set(FUZZ_DEFINES FMGC_WHOLE_COMPUTER=0)
+
+# Corpus driver (any compiler): replay + scenario injectors + oracles (properties, differential checks).
+foreach(variant ${MODEL_VARIANTS})
+  string(REPLACE "=" ";" parts ${variant})
+  list(GET parts 0 name)
+  set(gen_dir ${CMAKE_CURRENT_BINARY_DIR}/gen-${name})
+  add_executable(fmgc-drive-${name} src/drive.cpp ${FUZZ_READABLE_SOURCES} ${gen_dir}/fields.gen.h)
+  target_include_directories(fmgc-drive-${name} PRIVATE ${gen_dir} ${WASM_SRC} src readable)
+  target_compile_definitions(fmgc-drive-${name} PRIVATE ${FUZZ_DEFINES})
+  target_compile_options(fmgc-drive-${name} PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(fmgc-drive-${name} PRIVATE fmgc_model_${name} ZLIB::ZLIB -static)
+endforeach()
+
+# Clang-only targets (a separate build dir configured with -DFMGC_FUZZ=ON and clang++, see scripts/build-fuzz.sh):
+#   fmgc-cov-drive, fmgc-cov-fuzz-run  source-based coverage (-fprofile-instr-generate -fcoverage-mapping) of
+#                                      FmgcComputer.cpp and FmgcOuterLoops.cpp only
+#   fmgc-fuzz                          libFuzzer harness; only the same two files carry the coverage instrumentation
+#                                      (-fsanitize=fuzzer-no-link); the harness and the readable code are not instrumented
+#   fmgc-fuzz-run, fmgc-fuzz-bank      standalone runner/minimiser/seed generator and the snapshot bank builder
+# All model code keeps -O2 -ffp-contract=off. The model variant used is the one named "stock" (else the first).
+option(FMGC_FUZZ "Build the clang fuzzing and coverage targets" OFF)
+if(FMGC_FUZZ)
+  if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    message(FATAL_ERROR "FMGC_FUZZ needs clang (configure with -DCMAKE_CXX_COMPILER=clang++)")
+  endif()
+  set(fuzz_name "")
+  foreach(variant ${MODEL_VARIANTS})
+    string(REPLACE "=" ";" parts ${variant})
+    list(GET parts 0 name)
+    list(GET parts 1 dir)
+    if(fuzz_name STREQUAL "" OR name STREQUAL "stock")
+      set(fuzz_name ${name})
+      set(fuzz_dir ${dir})
+    endif()
+  endforeach()
+  set(fuzz_gen ${CMAKE_CURRENT_BINARY_DIR}/gen-${fuzz_name})
+  set(model_core ${fuzz_dir}/FmgcComputer.cpp ${fuzz_dir}/FmgcOuterLoops.cpp)
+  set(model_rest ${fuzz_dir}/FmgcComputer_data.cpp ${fuzz_dir}/look1_binlxpw.cpp ${fuzz_dir}/look1_iflf_binlxpw.cpp
+    ${fuzz_dir}/look2_binlxpw.cpp ${fuzz_dir}/look2_pbinlxpw.cpp ${fuzz_dir}/rt_modd.cpp)
+
+  # The two generated files compiled once per instrumentation (separate targets, so per-target flags apply).
+  add_library(fmgc_model_rest OBJECT ${model_rest})
+  target_include_directories(fmgc_model_rest PUBLIC ${fuzz_dir})
+  target_compile_options(fmgc_model_rest PRIVATE -O2 -ffp-contract=off)
+  add_library(fmgc_model_cov STATIC ${model_core} $<TARGET_OBJECTS:fmgc_model_rest>)
+  target_include_directories(fmgc_model_cov PUBLIC ${fuzz_dir})
+  target_compile_options(fmgc_model_cov PRIVATE -O2 -ffp-contract=off -fprofile-instr-generate -fcoverage-mapping)
+  add_library(fmgc_model_fuzz STATIC ${model_core} $<TARGET_OBJECTS:fmgc_model_rest>)
+  target_include_directories(fmgc_model_fuzz PUBLIC ${fuzz_dir})
+  target_compile_options(fmgc_model_fuzz PRIVATE -O2 -ffp-contract=off -fsanitize=fuzzer-no-link)
+
+  set(fuzz_inc ${fuzz_gen} ${WASM_SRC} src readable)
+  macro(fuzz_tool target main)
+    add_executable(${target} ${main} ${FUZZ_READABLE_SOURCES} ${fuzz_gen}/fields.gen.h)
+    target_include_directories(${target} PRIVATE ${fuzz_inc})
+    target_compile_definitions(${target} PRIVATE ${FUZZ_DEFINES})
+    target_compile_options(${target} PRIVATE -O2 -ffp-contract=off)
+  endmacro()
+
+  fuzz_tool(fmgc-cov-drive src/drive.cpp)
+  target_link_libraries(fmgc-cov-drive PRIVATE fmgc_model_cov ZLIB::ZLIB -fprofile-instr-generate -static)
+
+  fuzz_tool(fmgc-cov-fuzz-run src/fuzz_fmgc.cpp)
+  target_compile_definitions(fmgc-cov-fuzz-run PRIVATE FMGC_FUZZ_STANDALONE)
+  target_link_libraries(fmgc-cov-fuzz-run PRIVATE fmgc_model_cov -fprofile-instr-generate -static)
+
+  fuzz_tool(fmgc-fuzz src/fuzz_fmgc.cpp)
+  target_compile_options(fmgc-fuzz PRIVATE -g)
+  target_link_libraries(fmgc-fuzz PRIVATE fmgc_model_fuzz -fsanitize=fuzzer -static-libstdc++ -static-libgcc)
+
+  fuzz_tool(fmgc-fuzz-run src/fuzz_fmgc.cpp)
+  target_compile_definitions(fmgc-fuzz-run PRIVATE FMGC_FUZZ_STANDALONE)
+  target_link_libraries(fmgc-fuzz-run PRIVATE fmgc_model_${fuzz_name} -static)
+
+  fuzz_tool(fmgc-fuzz-bank src/fuzz_bank.cpp)
+  target_link_libraries(fmgc-fuzz-bank PRIVATE fmgc_model_${fuzz_name} ZLIB::ZLIB -static)
+endif()

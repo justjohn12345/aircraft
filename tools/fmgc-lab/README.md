@@ -188,3 +188,33 @@ The packing has no state, so there is no resync/free mode: every running frame, 
 stage results and every field of `fmgc_outputs` is compared bit-exact (SSMs as integers, Data by bit pattern); also
 checked: `out.data` = the step's inputs, and what the end-of-step delays hold. The report lists per-word SSM counts and
 per-bit steps/rises; the corpus script lists the bits never set (only spares) over all runs.
+
+## Phase 4: coverage, fuzzing, property checks
+
+```sh
+JOBS=4 scripts/build-fuzz.sh                  # clang tools into build/cmake-clang (+ gcc build/fmgc-drive-stock)
+JOBS=4 SEEDS=2 scripts/coverage.sh replay     # corpus x every scenario injector -> build/coverage/replay
+WORKERS=4 TIME=3600 scripts/fuzz.sh --coverage   # libFuzzer campaign -> build/fuzz, coverage of its corpus
+```
+
+- **Coverage** (`docs/coverage.md`): clang source-based coverage of `FmgcComputer.cpp` and `FmgcOuterLoops.cpp` only
+  (`-fprofile-instr-generate -fcoverage-mapping`, `-O2 -ffp-contract=off`). `build/fmgc-cov-drive` is the corpus
+  driver (`src/drive.cpp`: replay + any of `--fuzz --approach --athr --lateral --engagement --targets --failures
+  --tcas --situation SEED`) linked against the instrumented model; `build/fmgc-cov-fuzz-run` runs fuzz inputs through
+  it. Each result dir under `build/coverage/` has `report.txt` (lines/regions/branches per file), `html/`,
+  `uncovered.txt` (`scripts/coverage_report.py`: branch sides never taken, grouped by the subsystems of
+  `docs/structure.md`) and, for the replay, `props.txt` (the property table over every run).
+- **Fuzzer** (`src/fuzz_fmgc.cpp`, `build/fmgc-fuzz`): an input (`src/fuzz_case.h`) picks a snapshot of the bank
+  (`src/fuzz_bank.h`, built by `build/fmgc-fuzz-bank` from the corpus: model state every 120 s of each recording + the
+  next 30 s of replay inputs), restores the model state (one 10 KB copy, no re-replay) and runs the recorded inputs with
+  timed events on top: FCU knobs/buttons/values, AP/FD/A/THR buttons and disconnects, FMS constraint/phase/speed/flags,
+  SSM failures, discrete flips, any-field mutations, noise, power cycles, levers, radio height, on-ground, opposite
+  FMGC, engines, TCAS, ILS, sim flags, dt changes, and whole scenario injectors (`src/scenario_*.h`) for a duration.
+  Coverage feedback from the model only (`-fsanitize=fuzzer-no-link` on the two generated files) plus model-state
+  counters (mode transitions/pairs, armed sets, laws, A/THR FMA, property bad states). `build/fmgc-fuzz-run` is the same
+  code without libFuzzer: `run [--trace] [--summary]`, `minimize CHECK IN OUT`, `seeds DIR`, `info`.
+- **Oracles** (`src/fuzz_oracle.h`, every step): the behavioural properties (`src/properties.h`, `docs/properties.md`),
+  the stateless differential check of the readable output packing, the resync differential check of the readable
+  A/THR, and the stub for the whole-computer differential (`WholeComputerOracle`: what to change is in its comment).
+  Property violations are findings about stock behaviour (reproducers in `build/fuzz/findings`); differential
+  mismatches abort (`FMGC_FUZZ_ABORT=diff`, default) so libFuzzer keeps the input.
