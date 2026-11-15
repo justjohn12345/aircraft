@@ -48,6 +48,12 @@ void FlyByWireInterface::disconnect() {
   // disconnect from sim connect
   simConnectInterface.disconnect();
 
+  // FMGC shadow mode: end-of-session summary
+  if (fmgcShadowLog) {
+    FmgcShadow* shadows[2] = {fmgcs[0].getShadow(), fmgcs[1].getShadow()};
+    fmgcShadowLog->writeSummary(shadows, 2);
+  }
+
   // terminate flight data recorder
   flightDataRecorder.terminate();
 
@@ -213,6 +219,11 @@ bool FlyByWireInterface::update(double sampleTime) {
                               fadecs);
   }
 
+  // FMGC shadow mode: log new mismatches with this frame's recording, update the mismatch counters
+  if (fmgcShadowEnabled) {
+    result &= updateFmgcShadow();
+  }
+
   // if default AP is on -> disconnect it
   if (simData.autopilot_master_on) {
     simConnectInterface.sendEvent(SimConnectInterface::Events::AUTOPILOT_OFF);
@@ -254,6 +265,23 @@ void FlyByWireInterface::loadConfiguration() {
   std::printf("WASM: MODEL     : FMGC_DISABLED                        = %d\n", fmgcDisabled);
   std::printf("WASM: MODEL     : FADEC_DISABLED                       = %d\n", fadecDisabled);
   std::printf("WASM: MODEL     : TAILSTRIKE_PROTECTION_ENABLED        = %d\n", tailstrikeProtectionEnabled);
+
+  // --------------------------------------------------------------------------
+  // load values - FMGC
+  fmgcShadowEnabled = INITypeConversion::getBoolean(iniStructure, "FMGC", "SHADOW_ENABLED", false);
+
+  // print configuration into console
+  std::printf("WASM: FMGC      : SHADOW_ENABLED                       = %d\n", fmgcShadowEnabled);
+
+  if (fmgcShadowEnabled) {
+    // before the first FMGC step, so both computers start from power-up
+    for (int i = 0; i < 2; i++) {
+      fmgcs[i].enableShadow();
+      idFmgcShadowMismatches[i] = std::make_unique<LocalVariable>("A32NX_FMGC_" + std::to_string(i + 1) + "_SHADOW_MISMATCHES");
+      idFmgcShadowMismatches[i]->set(0);
+    }
+    fmgcShadowLog = std::make_unique<FmgcShadowLog>("\\work\\");
+  }
 
   // --------------------------------------------------------------------------
   // load values - autopilot
@@ -1712,6 +1740,25 @@ bool FlyByWireInterface::updateFcdc(double sampleTime, int fcdcIndex) {
   idFcdcPriorityCaptRed[fcdcIndex]->set(fcdcsDiscreteOutputs[fcdcIndex].captRedPriorityLightOn);
   idFcdcPriorityFoGreen[fcdcIndex]->set(fcdcsDiscreteOutputs[fcdcIndex].foGreenPriorityLightOn);
   idFcdcPriorityFoRed[fcdcIndex]->set(fcdcsDiscreteOutputs[fcdcIndex].foRedPriorityLightOn);
+
+  return true;
+}
+
+bool FlyByWireInterface::updateFmgcShadow() {
+  // index of this frame's record in the current flight data recorder file, -1 if this frame was not recorded
+  const unsigned long long fdrRecords = flightDataRecorder.getTotalRecords();
+  const long fdrRecord = fdrRecords != fmgcShadowLastFdrRecords ? flightDataRecorder.getRecordsInCurrentFile() - 1 : -1;
+  fmgcShadowLastFdrRecords = fdrRecords;
+
+  FmgcShadow* shadows[2] = {fmgcs[0].getShadow(), fmgcs[1].getShadow()};
+  fmgcShadowLog->update(shadows, 2, flightDataRecorder.getCurrentFilename(), fdrRecord);
+
+  for (int i = 0; i < 2; i++) {
+    const double mismatches = static_cast<double>(shadows[i]->mismatchFrames());
+    if (idFmgcShadowMismatches[i]->get() != mismatches) {
+      idFmgcShadowMismatches[i]->set(mismatches);
+    }
+  }
 
   return true;
 }

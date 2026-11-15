@@ -70,6 +70,9 @@ void FlightDataRecorder::update(const BaseData& baseData,
   for (int i = 0; i < NUMBER_OF_FADEC_TO_WRITE; ++i) {
     writeFadec(fadecs[i]);
   }
+
+  recordsInCurrentFile++;
+  totalRecords++;
 }
 
 void FlightDataRecorder::writeElac(Elac& elac) {
@@ -164,7 +167,9 @@ void FlightDataRecorder::manageFlightDataRecorderFiles() {
 
   if (!fileStream) {
     // create new file
-    fileStream = std::make_shared<gzofstream>(getFlightDataRecorderFilename().c_str());
+    currentFilename = getFlightDataRecorderFilename();
+    recordsInCurrentFile = 0;
+    fileStream = std::make_shared<gzofstream>(currentFilename.c_str());
     // write version to file
     fileStream->write((char*)&INTERFACE_VERSION, sizeof(INTERFACE_VERSION));
     // clean up directory

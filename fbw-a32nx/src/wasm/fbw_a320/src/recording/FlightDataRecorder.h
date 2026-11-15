@@ -34,6 +34,12 @@ class FlightDataRecorder {
 
   void terminate();
 
+  // The file being written ("" before the first record) and the number of records in it; the total number of records
+  // written this session (the FMGC shadow log uses them to point at the frame of a mismatch).
+  const std::string& getCurrentFilename() const { return currentFilename; }
+  long getRecordsInCurrentFile() const { return recordsInCurrentFile; }
+  unsigned long long getTotalRecords() const { return totalRecords; }
+
  private:
   const std::string CONFIGURATION_FILEPATH = "\\work\\FlightDataRecorder.ini";
 
@@ -42,6 +48,9 @@ class FlightDataRecorder {
   int maximumSampleCounter = 864000;
   int maximumFileCount = 15;
   std::shared_ptr<gzofstream> fileStream;
+  std::string currentFilename;
+  long recordsInCurrentFile = 0;
+  unsigned long long totalRecords = 0;
 
   void manageFlightDataRecorderFiles();
 

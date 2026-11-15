@@ -87,6 +87,7 @@ export default new TaskOfTasks('all', [
                 new ExecTask('systems-fbw', 'npm run build-a32nx:fbw', [
                     'fbw-a32nx/src/wasm/fbw_a320',
                     'fbw-common/src/wasm/fbw_common',
+                    'tools/fmgc-lab/readable',
                     'fbw-a32nx/out/flybywire-aircraft-a320-neo/SimObjects/AirPlanes/FlyByWire_A320_NEO/panel/fbw.wasm',
                 ]),
                 new ExecTask(
