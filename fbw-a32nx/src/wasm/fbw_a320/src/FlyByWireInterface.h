@@ -18,6 +18,7 @@
 #include "fcdc/Fcdc.h"
 #include "fcu/Fcu.h"
 #include "fmgc/Fmgc.h"
+#include "fmgc/FmgcShadow.h"
 #include "recording/FlightDataRecorder.h"
 #include "recording/RecordingDataTypes.h"
 #include "sec/Sec.h"
@@ -62,6 +63,12 @@ class FlyByWireInterface {
   int fmgcDisabled = -1;
   int fadecDisabled = -1;
   bool tailstrikeProtectionEnabled = true;
+
+  // FMGC shadow mode (ini [FMGC] SHADOW_ENABLED, tools/fmgc-lab/docs/shadow.md)
+  bool fmgcShadowEnabled = false;
+  std::unique_ptr<FmgcShadowLog> fmgcShadowLog;
+  std::unique_ptr<LocalVariable> idFmgcShadowMismatches[2];
+  unsigned long long fmgcShadowLastFdrRecords = 0;
 
   ConfirmNode elac2EmerPowersupplyRelayTimer = ConfirmNode(true, 30);
   SRFlipFlop elac2EmerPowersupplyNoseGearConditionLatch = SRFlipFlop(true);
@@ -696,6 +703,8 @@ class FlyByWireInterface {
   bool updateFmgc(double sampleTime, int fmgcIndex);
 
   bool updateFmgcShim(double sampleTime);
+
+  bool updateFmgcShadow();
 
   bool updateFcu(double sampleTime);
 

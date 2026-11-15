@@ -161,6 +161,51 @@ clang++ \
 # restore directory
 popd
 
+# compile the FMGC shadow checker with the readable FMGC it runs (tools/fmgc-lab/readable, every source but the tests;
+# see tools/fmgc-lab/docs/shadow.md) into their own folder: readable/fmgc.cpp and fmgc/Fmgc.cpp would both become
+# fmgc.o on a case-insensitive file system
+FMGC_LAB_DIR="${DIR}/../../../../tools/fmgc-lab"
+READABLE_FMGC_SOURCES=()
+for source in "${FMGC_LAB_DIR}"/readable/*.cpp; do
+  [[ "${source}" == *_test.cpp ]] || READABLE_FMGC_SOURCES+=("${source}")
+done
+mkdir -p "${DIR}/obj/fmgc-shadow"
+rm -f "${DIR}/obj/fmgc-shadow/"*.o
+pushd "${DIR}/obj/fmgc-shadow"
+
+clang++ \
+  -c \
+  ${CLANG_ARGS} \
+  -std=c++20 \
+  -Wno-unused-command-line-argument \
+  -Wno-ignored-attributes \
+  -Wno-macro-redefined \
+  --sysroot "${MSFS_SDK}/WASM/wasi-sysroot" \
+  -target wasm32-unknown-wasi \
+  -D_MSFS_WASM=1 \
+  -D__wasi__ \
+  -D_LARGEFILE64_SOURCE \
+  -D_LIBCPP_HAS_NO_THREADS \
+  -D_WINDLL \
+  -D_MBCS \
+  -DNOMINMAX \
+  -mthread-model single \
+  -fno-exceptions \
+  -fms-extensions \
+  -fvisibility=hidden \
+  -fdata-sections \
+  -fno-stack-protector \
+  -fstack-size-section \
+  -mbulk-memory \
+  -ffp-contract=off \
+  -Werror=return-type \
+  -I "${DIR}/src/model" \
+  -I "${FMGC_LAB_DIR}" \
+  "${DIR}/src/fmgc/FmgcShadow.cpp" \
+  "${READABLE_FMGC_SOURCES[@]}"
+
+popd
+
 # link modules
 wasm-ld \
   --no-entry \
@@ -182,4 +227,5 @@ wasm-ld \
   ${WASMLD_ARGS} \
   -lc++ -lc++abi \
   ${DIR}/obj/*.o \
+  ${DIR}/obj/fmgc-shadow/*.o \
   -o $OUTPUT

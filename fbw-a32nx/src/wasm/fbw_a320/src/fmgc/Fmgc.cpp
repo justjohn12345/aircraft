@@ -1,5 +1,6 @@
 #include "Fmgc.h"
 #include "../Arinc429.h"
+#include "FmgcShadow.h"
 
 Fmgc::Fmgc(bool isUnit1) : isUnit1(isUnit1) {
   fmgcComputer.initialize();
@@ -7,6 +8,14 @@ Fmgc::Fmgc(bool isUnit1) : isUnit1(isUnit1) {
 
 Fmgc::Fmgc(const Fmgc& obj) : isUnit1(obj.isUnit1) {
   fmgcComputer.initialize();
+}
+
+Fmgc::~Fmgc() = default;
+
+void Fmgc::enableShadow() {
+  if (!shadow) {
+    shadow = std::make_unique<FmgcShadow>(isUnit1 ? 1 : 2);
+  }
 }
 
 // If the power supply is valid and we are on the ground, perform the self-test-sequence.
@@ -35,6 +44,11 @@ void Fmgc::update(double deltaTime, double simulationTime, bool faultActive, boo
   fmgcComputer.setExternalInputs(&modelInputs);
   fmgcComputer.step();
   modelOutputs = fmgcComputer.getExternalOutputs().out;
+
+  if (shadow) {
+    // Same inputs as the generated step (computer_running included); compare only, the outputs above are unchanged.
+    shadow->step(modelInputs.in, fmgcComputer.getExternalOutputs().out);
+  }
 }
 
 // Perform self monitoring
