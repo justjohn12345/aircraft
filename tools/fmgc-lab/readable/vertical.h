@@ -131,8 +131,23 @@ struct Frame {
   const External& ext;
 };
 
+/**
+ * Conditions computed inside a signal's update that other parts of the FMGC output, though no Signal carries them.
+ * Valid after the named signal's update this frame.
+ */
+struct VerticalAux {
+  bool takeoffThrust = false;   // [1683 rtb_AND_j] a lever at TOGA, or at FLX with a FLEX temperature (SrsTakeoff);
+                                //   output as ap_fd_logic.tla_to_ga_set
+  bool altCaptureCond = false;  // [2549 rtb_AND1_c0] ALT* geometric capture condition (AltCapture);
+                                //   output as tcas_alt_acq_cond, the set term of the TCAS ALT_ACQ submode
+  bool altHoldBand = false;     // [2610 rtb_AND8] |target - H| < 40 ft for 0.8 s (AltHold);
+                                //   output as tcas_alt_hold_cond, the set term of the TCAS ALT_HOLD submode
+};
+
 class VerticalModeLogic {
  public:
+  VerticalAux aux;  // this frame's auxiliary conditions (see VerticalAux)
+
   /** Power-up / computer restart: latches to their initial values, block memories cleared. */
   void reset(Signals& s);
 
