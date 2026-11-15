@@ -77,7 +77,7 @@ bool VerticalModeLogic::updateVsTcas(Signal id, const Frame& f, Signals& s) {
       bool navLost = st.navLost.update(f.last.lateral_modes.nav_active, false);
       bool apprPushed = st.apprPushed.update(fcuWord1Bit(f, kFcuWord1ApprPushed), true);
       if (!last.alt_acq_active) {
-        st.altCaptureTargetFt = f.ext.altSelOrCstr;
+        st.altCaptureTargetFt = s.altSelOrCstr;
       }
 
       const auto& fms = f.in.fms_inputs;
@@ -98,7 +98,7 @@ bool VerticalModeLogic::updateVsTcas(Signal id, const Frame& f, Signals& s) {
                                             !fms.vertical_flight_plan_valid);
       // ALT* target (FCU altitude or constraint) moved by 250 ft since ALT* engaged.
       bool altCaptureTargetChanged =
-          last.alt_acq_active && std::abs(st.altCaptureTargetFt - f.ext.altSelOrCstr) >= kAltTargetChangeFt;
+          last.alt_acq_active && std::abs(st.altCaptureTargetFt - s.altSelOrCstr) >= kAltTargetChangeFt;
       // Descending with the FCU altitude above, or climbing with it below.
       bool wrongWay = (desFamily && fcuAboveAircraft > 0.0F) || (clbFamily && fcuAboveAircraft < 0.0F);
       // TCAS mode ends in V/S once the RA is over (or TCAS RA unavailable) in submode VS.
@@ -162,10 +162,10 @@ bool VerticalModeLogic::updateVsTcas(Signal id, const Frame& f, Signals& s) {
       // TCAS submode ALT_ACQ: the ALT* capture condition during an RA with ALT armed; abandoned when the target moves by
       // 250 ft from its value when the submode became ALT_ACQ.
       if (f.last.active_tcas_submode != tcas_submode::ALT_ACQ) {
-        st.tcasAltAcqTargetFt = f.ext.altSelOrCstr;
+        st.tcasAltAcqTargetFt = s.altSelOrCstr;
       }
       bool set = f.ext.vsTcas.altCaptureCond;
-      bool reset = std::abs(st.tcasAltAcqTargetFt - f.ext.altSelOrCstr) >= kAltTargetChangeFt || !raActive(f) ||
+      bool reset = std::abs(st.tcasAltAcqTargetFt - s.altSelOrCstr) >= kAltTargetChangeFt || !raActive(f) ||
                    !f.last.armed_modes.alt_acq_armed;
       s[id] = latch(set, reset, s[id]);
       return true;

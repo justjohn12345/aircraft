@@ -89,9 +89,9 @@ bool VerticalModeLogic::updateClimbDescent(Signal id, const Frame& f, Signals& s
   const bool vertFpValid = fms.vertical_flight_plan_valid;
 
   const bool levelled = last.alt_acq_active || last.alt_hold_active;  // ALT* or ALT last frame
-  const bool cstrApplicable = f.ext.altCstrApplicable;
+  const bool cstrApplicable = s[Signal::AltCstrApplicable];
   // Distance to the altitude target (constraint or FCU altitude), double as generated.
-  const double toTargetFt = std::abs(f.ext.altSelOrCstr - h);
+  const double toTargetFt = std::abs(s.altSelOrCstr - h);
   const bool navOrLoc = lastLat.nav_active || lastLat.loc_cpt_active || lastLat.loc_trk_active;
   // Engaging any mode of this group needs: own computation, "ALT arm possible" (not holding ALT at the FCU altitude
   // without a knob turn since), more than 5 s in flight (or on the ground with both engines stopped), and no LAND.

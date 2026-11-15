@@ -2,8 +2,9 @@
 //
 // SPDX-License-Identifier: GPL-3.0
 
-// ALT arm possible, ALT armed, ALT* (altitude capture), ALT (altitude hold), ALT CRZ.
-// Spec: docs/modes/alt-vs-fpa-tcas.md. Generated: FmgcComputer.cpp 2405–2610.
+// Altitude target (alt_cstr_applicable / alt_sel_or_cstr), ALT arm possible, ALT armed, ALT* (altitude capture),
+// ALT (altitude hold), ALT CRZ.
+// Spec: docs/modes/alt-vs-fpa-tcas.md. Generated: FmgcComputer.cpp 1636–1664 (target), 2405–2610.
 
 #include <cmath>
 
@@ -25,6 +26,7 @@ constexpr double kAltHoldBandFt = 40;               // ALT engages within 40 ft 
 constexpr double kAltHoldConfirmS = 0.8;            // ... held for 0.8 s
 constexpr double kSrsMinRadioHeightFt = 400;        // in SRS, ALT* only above 400 ft RA
 constexpr double kCruiseAltBandFt = 60;
+constexpr double kCstrWrongSideMarginFt = 250;      // a constraint up to 250 ft behind the aircraft still applies
 
 constexpr int kFcuWord1AltChanged = 13;   // 0.5 s pulse when the FCU altitude value changes
 constexpr int kOppWord1AltCaptOrHold = 19;  // opposite FMGC: ALT* or ALT
@@ -105,6 +107,36 @@ bool VerticalModeLogic::updateAlt(Signal id, const Frame& f, Signals& s) {
   const float h = indicatedAltitude(f);
 
   switch (id) {
+    case Signal::AltCstrApplicable: {
+      // The FMS altitude constraint is the ALT*/ALT target when a managed climb or descent is armed or active (or
+      // ALT*/ALT is already levelling at a constraint), and the constraint lies between the aircraft and the FCU
+      // altitude. All conditions read the previous frame's modes.
+      const auto& lastLat = f.last.lateral_modes;
+      const auto& lastArmed = f.last.armed_modes;
+      const double cstr = f.in.fms_inputs.next_alt_cstr_ft;  // 0: no constraint
+      const float fcuAlt = fcuAltitude(f);
+      // ALT*/ALT on a constraint in NAV/LOC* /LOC with a vertical flight plan: keeps the constraint applicable through
+      // the capture, also once the aircraft is within 250 ft behind it.
+      bool levelAtCstr = (last.alt_acq_active || last.alt_hold_active) && f.last.alt_cstr_applicable &&
+                         (lastLat.nav_active || lastLat.loc_cpt_active || lastLat.loc_trk_active) &&
+                         f.in.fms_inputs.vertical_flight_plan_valid;
+      bool between;  // constraint between the aircraft (- 250 ft) and the FCU altitude
+      if (fcuAlt > h) {  // climbing towards the FCU altitude
+        between = cstr < fcuAlt && (cstr + kCstrWrongSideMarginFt > h || levelAtCstr);
+      } else {
+        between = cstr > fcuAlt && (cstr - kCstrWrongSideMarginFt < h || levelAtCstr);
+      }
+      bool managed = lastArmed.clb_armed || lastArmed.des_armed || last.clb_active || last.des_active || levelAtCstr;
+      s[id] = managed && cstr != 0.0 && between;
+      return true;
+    }
+
+    case Signal::AltSelOrCstr:
+      // The ALT*/ALT target: always the current constraint value (not the one captured), else the FCU altitude.
+      s.altSelOrCstr = s[Signal::AltCstrApplicable] ? f.in.fms_inputs.next_alt_cstr_ft : fcuAltitude(f);
+      s[id] = s.altSelOrCstr != 0.0;
+      return true;
+
     case Signal::AltArmPossible: {
       // ALT can be armed again once the FCU altitude changes or the aircraft is more than 250 ft from it; not while
       // holding ALT at the FCU altitude.
@@ -143,7 +175,7 @@ bool VerticalModeLogic::updateAlt(Signal id, const Frame& f, Signals& s) {
       bool fcuChanged = alt_.fcuAltChangedRecently.update(fcuWord1Bit(f, kFcuWord1AltChanged), f.dt, true, true,
                                                           kFcuChangeCaptureInhibitS);
       float vs = valueOr(f.ext.logic->ir_computation_data.inertial_vertical_speed_ft_s, 0.0F);  // fpm
-      double toTarget = f.ext.altSelOrCstr - h;
+      double toTarget = s.altSelOrCstr - h;
       bool captureCond = f.last.armed_modes.alt_acq_armed && !fcuChanged &&
                          captureDistanceFt(vs) > std::abs(toTarget) && sign(toTarget) == sign(vs);
 
@@ -164,7 +196,7 @@ bool VerticalModeLogic::updateAlt(Signal id, const Frame& f, Signals& s) {
     case Signal::AltHold: {
       const auto& opp = oppBus(f).discrete_word_1;
       bool oppHold = f.ext.oppModeSync && oppFmgcBit(opp, kOppWord1AltCaptOrHold) && oppFmgcBit(opp, kOppWord1AltHoldOrGs);
-      bool withinBand = alt_.withinAltHoldBand.update(std::abs(f.ext.altSelOrCstr - h) < kAltHoldBandFt, f.dt, true,
+      bool withinBand = alt_.withinAltHoldBand.update(std::abs(s.altSelOrCstr - h) < kAltHoldBandFt, f.dt, true,
                                                       kAltHoldConfirmS);
       bool set = oppHold ||
                  (ownCompute && last.alt_acq_active && withinBand && tcasAllows(f, tcas_submode::ALT_HOLD));
@@ -183,7 +215,7 @@ bool VerticalModeLogic::updateAlt(Signal id, const Frame& f, Signals& s) {
 
     case Signal::AltCruise:
       // "ALT CRZ" on the FMA: holding ALT at the cruise altitude, not at a constraint.
-      s[id] = s[Signal::AltHold] && !f.ext.altCstrApplicable && s[Signal::AltCruiseMemory];
+      s[id] = s[Signal::AltHold] && !s[Signal::AltCstrApplicable] && s[Signal::AltCruiseMemory];
       return true;
 
     default:
