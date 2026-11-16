@@ -24,6 +24,9 @@
 constexpr uint64_t FDR_INTERFACE_VERSION = 3200006;
 constexpr uint64_t FDR_INTERFACE_VERSION_FCU = 3209001;
 constexpr uint64_t FDR_INTERFACE_VERSION_FCU_VNAV = 3209002;
+// 3209002 plus the descent/MCDU profile diagnostics (FmsVnavDiagData, 20 doubles; personal/fdr-vnav-diag)
+constexpr uint64_t FDR_INTERFACE_VERSION_FCU_VNAV_DIAG = 3209003;
+constexpr size_t FDR_FMS_VNAV_DIAG_COUNT = 20;
 
 /**
  * The FMS VNAV state of a 3209002 record: a copy of FmsVnavData (RecordingDataTypes.h of the personal/fdr-vnav branch),
@@ -109,8 +112,10 @@ struct FdrFrame {
   FadecRecord fadec[1];
   bool hasFcu;  // 3209001 and 3209002
   FcuRecord fcu;
-  bool hasFmsVnav;  // 3209002 only
+  bool hasFmsVnav;  // 3209002 and 3209003
   FmsVnavRecord fmsVnav;
+  bool hasFmsVnavDiag;  // 3209003 only, the fields of FmsVnavDiagData in order
+  double fmsVnavDiag[FDR_FMS_VNAV_DIAG_COUNT];
 };
 
 class FdrReader {
@@ -125,7 +130,7 @@ class FdrReader {
     if (!readRaw(&version_, sizeof(version_))) {
       error_ = "cannot read interface version";
     } else if (version_ != FDR_INTERFACE_VERSION && version_ != FDR_INTERFACE_VERSION_FCU &&
-               version_ != FDR_INTERFACE_VERSION_FCU_VNAV) {
+               version_ != FDR_INTERFACE_VERSION_FCU_VNAV && version_ != FDR_INTERFACE_VERSION_FCU_VNAV_DIAG) {
       error_ = "unsupported interface version " + std::to_string(version_);
     }
   }
@@ -142,8 +147,9 @@ class FdrReader {
   bool ok() const { return error_.empty(); }
   const std::string& error() const { return error_; }
   uint64_t version() const { return version_; }
-  bool hasFcu() const { return version_ == FDR_INTERFACE_VERSION_FCU || version_ == FDR_INTERFACE_VERSION_FCU_VNAV; }
-  bool hasFmsVnav() const { return version_ == FDR_INTERFACE_VERSION_FCU_VNAV; }
+  bool hasFcu() const { return version_ >= FDR_INTERFACE_VERSION_FCU && version_ <= FDR_INTERFACE_VERSION_FCU_VNAV_DIAG; }
+  bool hasFmsVnav() const { return version_ == FDR_INTERFACE_VERSION_FCU_VNAV || hasFmsVnavDiag(); }
+  bool hasFmsVnavDiag() const { return version_ == FDR_INTERFACE_VERSION_FCU_VNAV_DIAG; }
 
   /** Reads the next frame; false at the end of the file (a truncated last frame is ignored). */
   bool next(FdrFrame& frame) {
@@ -181,7 +187,8 @@ class FdrReader {
 
   bool readFmsVnav(FdrFrame& frame) {
     frame.hasFmsVnav = hasFmsVnav();
-    return !frame.hasFmsVnav || readField(frame.fmsVnav);
+    frame.hasFmsVnavDiag = hasFmsVnavDiag();
+    return (!frame.hasFmsVnav || readField(frame.fmsVnav)) && (!frame.hasFmsVnavDiag || readField(frame.fmsVnavDiag));
   }
 
   bool readFmgc(FmgcRecord& r) {
