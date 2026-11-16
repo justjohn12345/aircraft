@@ -17,7 +17,8 @@ class FlightDataRecorder {
   // IMPORTANT: this constant needs to increased with every interface change
   // 3209001: personal build, 3200006 plus the FCU model inputs and outputs at the end of each record
   // 3209002: personal build, 3209001 plus the FMS VNAV state (FmsVnavData) at the end of each record
-  const uint64_t INTERFACE_VERSION = 3209002;
+  // 3209003: personal build, 3209002 plus the descent/MCDU profile diagnostics (FmsVnavDiagData) after FmsVnavData
+  const uint64_t INTERFACE_VERSION = 3209003;
 
   const uint32_t NUMBER_OF_ELAC_TO_WRITE = 2;
   const uint32_t NUMBER_OF_SEC_TO_WRITE = 3;
@@ -106,4 +107,31 @@ class FlightDataRecorder {
   };
   static_assert(sizeof(FMS_VNAV_VARIABLES) / sizeof(FMS_VNAV_VARIABLES[0]) == FMS_VNAV_VARIABLE_COUNT);
   std::unique_ptr<LocalVariable> fmsVnavVariables[FMS_VNAV_VARIABLE_COUNT];
+
+  // The L:vars of FmsVnavDiagData, in the order of its fields (published by the FMS VnavDriver)
+  static constexpr size_t FMS_VNAV_DIAG_VARIABLE_COUNT = sizeof(FmsVnavDiagData) / sizeof(double);
+  static constexpr const char* FMS_VNAV_DIAG_VARIABLES[] = {
+      "A32NX_FDR_VNAV_DESC_CHECKPOINT_COUNT",
+      "A32NX_FDR_VNAV_DESC_DROPPED_COUNT",
+      "A32NX_FDR_VNAV_DESC_FIRST_DROPPED_REASON",
+      "A32NX_FDR_VNAV_DESC_OUT_OF_ORDER",
+      "A32NX_FDR_VNAV_DESC_FIRST_DISTANCE",
+      "A32NX_FDR_VNAV_DESC_FIRST_ALT",
+      "A32NX_FDR_VNAV_DESC_FIRST_REASON",
+      "A32NX_FDR_VNAV_DESC_TOD_ALT",
+      "A32NX_FDR_VNAV_DESC_GEOMETRIC_PATH_START",
+      "A32NX_FDR_VNAV_DESC_DECEL",
+      "A32NX_FDR_VNAV_EST_DEST_FUEL",
+      "A32NX_FDR_VNAV_APPROACH_SPEED",
+      "A32NX_FDR_VNAV_DESCENT_WIND_COUNT",
+      "A32NX_FDR_VNAV_CRUISE_WIND_LEG_COUNT",
+      "A32NX_FDR_VNAV_CLIMB_WIND_COUNT",
+      "A32NX_FDR_VNAV_MCDU_READY",
+      "A32NX_FDR_VNAV_MCDU_TOD",
+      "A32NX_FDR_VNAV_MCDU_CHECKPOINT_COUNT",
+      "A32NX_FDR_VNAV_MCDU_DROPPED_COUNT",
+      "A32NX_FDR_VNAV_MCDU_FIRST_DROPPED_REASON",
+  };
+  static_assert(sizeof(FMS_VNAV_DIAG_VARIABLES) / sizeof(FMS_VNAV_DIAG_VARIABLES[0]) == FMS_VNAV_DIAG_VARIABLE_COUNT);
+  std::unique_ptr<LocalVariable> fmsVnavDiagVariables[FMS_VNAV_DIAG_VARIABLE_COUNT];
 };

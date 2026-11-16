@@ -113,3 +113,29 @@ struct FmsVnavData {
   double approach_selected;
   double stock_constraint_alt_ft;
 };
+
+// Personal build (FDR interface 3209003): descent and MCDU profile diagnostics, read from the L:A32NX_FDR_VNAV_* variables
+// of VnavDriver.FDR_DIAG_VARS. Reasons are indexes in VerticalCheckpointReason; -1 when not available, -2 when the value
+// was not finite. All doubles, in the order of FlightDataRecorder::FMS_VNAV_DIAG_VARIABLES.
+struct FmsVnavDiagData {
+  double desc_checkpoint_count;
+  double desc_dropped_count;
+  double desc_first_dropped_reason;
+  double desc_out_of_order;
+  double desc_first_distance_nm;
+  double desc_first_alt_ft;
+  double desc_first_reason;
+  double desc_tod_alt_ft;
+  double desc_geometric_path_start_nm;
+  double desc_decel_nm;
+  double est_dest_fuel_lbs;
+  double approach_speed_kts;
+  double descent_wind_count;
+  double cruise_wind_leg_count;
+  double climb_wind_count;
+  double mcdu_ready;
+  double mcdu_tod_nm;
+  double mcdu_checkpoint_count;
+  double mcdu_dropped_count;
+  double mcdu_first_dropped_reason;
+};

@@ -6,7 +6,7 @@ use crate::{
         base_fmgc_bus_inputs, base_fmgc_bus_outputs, base_fmgc_discrete_inputs,
         base_fmgc_discrete_outputs, base_fmgc_logic_outputs, base_fms_inputs,
         base_sec_analog_outputs, base_sec_discrete_outputs, base_sec_out_bus, AircraftSpecificData,
-        BaseData, base_fcu_bus, base_fcu_discrete_outputs, base_fcu_logic_outputs, fcu_inputs, FmsVnavData,
+        BaseData, base_fcu_bus, base_fcu_discrete_outputs, base_fcu_logic_outputs, fcu_inputs, FmsVnavData, FmsVnavDiagData,
     },
     read_bytes,
 };
@@ -18,6 +18,8 @@ pub const INTERFACE_VERSION: u64 = 3200006;
 pub const INTERFACE_VERSION_FCU: u64 = 3209001;
 // Personal build: INTERFACE_VERSION_FCU plus the FMS VNAV state at the end of each record
 pub const INTERFACE_VERSION_FCU_VNAV: u64 = 3209002;
+// Personal build: INTERFACE_VERSION_FCU_VNAV plus the descent/MCDU profile diagnostics
+pub const INTERFACE_VERSION_FCU_VNAV_DIAG: u64 = 3209003;
 
 // A single FDR record
 #[derive(Serialize, Default)]
@@ -68,6 +70,45 @@ pub struct FdrDataFcuVnav {
     fadec_1: FadecData,
     fcu: FcuData,
     fms_vnav: FmsVnavData,
+}
+
+// A single FDR record of INTERFACE_VERSION_FCU_VNAV_DIAG
+#[derive(Serialize, Default)]
+pub struct FdrDataFcuVnavDiag {
+    base: BaseData,
+    specific: AircraftSpecificData,
+    elac_1: ElacData,
+    elac_2: ElacData,
+    sec_1: SecData,
+    sec_2: SecData,
+    sec_3: SecData,
+    fac_1: FacData,
+    fac_2: FacData,
+    fmgc_1: FmgcData,
+    fadec_1: FadecData,
+    fcu: FcuData,
+    fms_vnav: FmsVnavData,
+    fms_vnav_diag: FmsVnavDiagData,
+}
+
+pub fn read_record_fcu_vnav_diag(reader: &mut impl Read) -> Result<FdrDataFcuVnavDiag, Error> {
+    let r = read_record_fcu_vnav(reader)?;
+    Ok(FdrDataFcuVnavDiag {
+        base: r.base,
+        specific: r.specific,
+        elac_1: r.elac_1,
+        elac_2: r.elac_2,
+        sec_1: r.sec_1,
+        sec_2: r.sec_2,
+        sec_3: r.sec_3,
+        fac_1: r.fac_1,
+        fac_2: r.fac_2,
+        fmgc_1: r.fmgc_1,
+        fadec_1: r.fadec_1,
+        fcu: r.fcu,
+        fms_vnav: r.fms_vnav,
+        fms_vnav_diag: read_bytes::<FmsVnavDiagData>(reader)?,
+    })
 }
 
 #[derive(Serialize, Default)]
