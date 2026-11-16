@@ -123,6 +123,7 @@ Always start an item with "1."; GitHub will number the rendered list automatical
 1. [A32NX/FCU] Fixed SPD/MACH pb switching the FCU in managed speed, and the FCU staying in MACH after returning to managed speed - @justjohn12345
 1. [FMS] Fixed departures getting stuck on a climb-to-altitude leg flown after a fix (e.g. OTHH, NZCH RNP SIDs) - @justjohn12345
 1. [A32NX/FMS] Fixed V/S engaging instead of DES when sequencing a descent constraint during ALT CST* - @justjohn12345
+1. [FMS/FG] Added FINAL APP vertical guidance for RNAV and other non-LS approaches - @justjohn12345
 
 ## 2024.1.0
 
