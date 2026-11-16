@@ -531,8 +531,11 @@ export class Geometry {
     }
 
     // Restrict sequencing in cases where we are still in inbound transition. Make an exception for very short legs as the transition could be overshooting.
+    // A course capture transition into a CA leg is never flown, as the CA leg is guided from PPOS (see getGuidanceParameters),
+    // so it never completes and would otherwise prevent the CA leg from ever being sequenced.
     if (
       !inboundTransition?.isNull &&
+      !(inboundTransition instanceof CourseCaptureTransition && activeLeg instanceof CALeg) &&
       inboundTransition?.isAbeam(ppos) &&
       (activeLeg.distance > 0.01 || (activeLeg instanceof XFLeg && activeLeg.overshot))
     ) {

@@ -121,6 +121,7 @@ Always start an item with "1."; GitHub will number the rendered list automatical
 1. [A380X/FLIGHT MODEL] Flight model fixes - @donstim (donbikes)
 1. [A32NX/FMS] Fix Vs1g for CONF 1+F and fix Vls for CONF 3 CG=>25%
 1. [A32NX/FCU] Fixed SPD/MACH pb switching the FCU in managed speed, and the FCU staying in MACH after returning to managed speed - @justjohn12345
+1. [FMS] Fixed departures getting stuck on a climb-to-altitude leg flown after a fix (e.g. OTHH, NZCH RNP SIDs) - @justjohn12345
 
 ## 2024.1.0
 

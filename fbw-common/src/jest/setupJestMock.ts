@@ -72,6 +72,9 @@ global.Avionics = {
     bearingDistanceToCoordinates(bearing: number, distance: number, lat: number, long: number) {
       return placeBearingDistance({ lat, long }, bearing, distance);
     },
+    clampAngle(angle: number): number {
+      return ((angle % 360) + 360) % 360;
+    },
   },
 };
 
