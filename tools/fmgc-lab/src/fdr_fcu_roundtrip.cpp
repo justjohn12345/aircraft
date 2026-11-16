@@ -2,10 +2,11 @@
 //
 // SPDX-License-Identifier: GPL-3.0
 
-// Round trip of the personal FDR formats 3209001 (3200006 plus the FCU) and, with --vnav, 3209002 (plus the FMS VNAV state): writes a synthetic file field by field in the
+// Round trip of the personal FDR formats 3209001 (3200006 plus the FCU), with --vnav 3209002 (plus the FMS VNAV state) and
+// with --diag 3209003 (plus the profile diagnostics): writes a synthetic file field by field in the
 // order of FlightDataRecorder::update() / writeFcu(), with marker values, and reads it back with FdrReader. The file
 // is kept for checking fdr2csv on it.
-// Usage: fdr-fcu-roundtrip <out.fdr> [--vnav]
+// Usage: fdr-fcu-roundtrip <out.fdr> [--vnav|--diag]
 
 #include <zlib.h>
 #include <cstdio>
@@ -35,7 +36,9 @@ void fill(FdrFrame& fr, int i) {
   fr.fcu.bus_outputs.fcu_discrete_word_1.Data = static_cast<float>(1 << 14);
   fr.fmsVnav.distance_to_end_nm = 120.5 + i;
   fr.fmsVnav.profile_target_alt_ft = 21000 + i;
-  fr.fmsVnav.stock_constraint_alt_ft = 14000 + i;  // last field
+  fr.fmsVnav.stock_constraint_alt_ft = 14000 + i;
+  fr.fmsVnavDiag[0] = 50 + i;
+  fr.fmsVnavDiag[FDR_FMS_VNAV_DIAG_COUNT - 1] = 7 + i;  // last field
 }
 
 }  // namespace
@@ -46,10 +49,11 @@ int main(int argc, char** argv) {
     return 2;
   }
   constexpr int kFrames = 3;
-  const bool vnav = argc > 2 && std::strcmp(argv[2], "--vnav") == 0;
+  const bool diag = argc > 2 && std::strcmp(argv[2], "--diag") == 0;
+  const bool vnav = diag || (argc > 2 && std::strcmp(argv[2], "--vnav") == 0);
   auto fr = std::make_unique<FdrFrame>();
   gzFile f = gzopen(argv[1], "wb");
-  put(f, vnav ? FDR_INTERFACE_VERSION_FCU_VNAV : FDR_INTERFACE_VERSION_FCU);
+  put(f, diag ? FDR_INTERFACE_VERSION_FCU_VNAV_DIAG : vnav ? FDR_INTERFACE_VERSION_FCU_VNAV : FDR_INTERFACE_VERSION_FCU);
   for (int i = 0; i < kFrames; i++) {
     fill(*fr, i);
     put(f, fr->base);
@@ -71,6 +75,9 @@ int main(int argc, char** argv) {
     if (vnav) {
       put(f, fr->fmsVnav);
     }
+    if (diag) {
+      put(f, fr->fmsVnavDiag);
+    }
   }
   gzclose(f);
 
@@ -88,7 +95,9 @@ int main(int argc, char** argv) {
                       got->fmgc1.fms_inputs.v_managed_kts == expected->fmgc1.fms_inputs.v_managed_kts &&
                       got->fadec[0].outputs.N1_c_percent == expected->fadec[0].outputs.N1_c_percent &&
                       std::memcmp(&got->fcu, &expected->fcu, sizeof(FcuRecord)) == 0 && got->hasFmsVnav == vnav &&
-                      (!vnav || std::memcmp(&got->fmsVnav, &expected->fmsVnav, sizeof(FmsVnavRecord)) == 0);
+                      (!vnav || std::memcmp(&got->fmsVnav, &expected->fmsVnav, sizeof(FmsVnavRecord)) == 0) &&
+                      got->hasFmsVnavDiag == diag &&
+                      (!diag || std::memcmp(got->fmsVnavDiag, expected->fmsVnavDiag, sizeof(got->fmsVnavDiag)) == 0);
     if (!same) {
       std::fprintf(stderr, "FAIL: frame %d differs\n", n);
       return 1;
