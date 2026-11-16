@@ -13,3 +13,4 @@
 # 2026-11-15 ~13:10: 2026-11-15-18-40-33 recorded on test/shadow 6a0e92c24 -> replay with "stock"; shadow log in ~/fdr-corpus/raw
 # 2026-11-15 ~20:22: test/shadow-fixes 98c47e189 installed (test/shadow + non-FMGC FMS fixes: LNAV CA sequencing, descent constraint level-off, FINAL APP + smooth path; FMGC model stock, shadow on) -> replay with "stock"
 # 2026-11-15 ~20:50: test/shadow-fixes 01002365b installed (adds FCU soft mode fix C13; FMGC model stock, shadow on) -> replay with "stock" (FCU change is upstream of the recorded FMGC inputs)
+# 2026-11-15 ~21:02: test/shadow-fixes b5f6d1664 installed (adds FDR FCU recording, interface 3209001) -> replay with "stock"; FCU replays from the recorded FCU inputs
