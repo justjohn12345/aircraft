@@ -210,7 +210,7 @@ bool FlyByWireInterface::update(double sampleTime) {
   if (!simConnectInterface.isSimInActivePause()) {
     // update flight data recorder
     flightDataRecorder.update(baseData, aircraftSpecificData, elacs, secs, facs, fmgcs[0].getDebugOutputs(), fmgcs[1].getDebugOutputs(),
-                              fadecs);
+                              fadecs, fcu);
   }
 
   // if default AP is on -> disconnect it
