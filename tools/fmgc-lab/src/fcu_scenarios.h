@@ -18,10 +18,12 @@
 //                  changes, any AP/FD engaged changes, AP engagement edges).
 //  --bus SEED      episodes on the FMGC A buses: a random word the FCU reads (discrete words 1-7, ATS words, CAS,
 //                  Mach, heading, track, altitude, V/S, FPA, presets, altitude constraint, N1, flex) with a random SSM,
-//                  a bit set/cleared or a random value; and structured ones: end of TCAS into V/S-FPA with the RA bits
+//                  a bit set/cleared (optionally with a random SSM) or a random value; and structured ones: end of TCAS into V/S-FPA with the RA bits
 //                  (24, 27, 28) varied, V/S knob push followed by V/S-FPA engagement within 0-1.5 s (level-off), SRS
 //                  TO/GA and TCAS on FMGC 1 (TRK/FPA reset, FD auto on), FD auto disengage, FMGC Mach mode, managed <->
-//                  selected speed and lateral, HDG preset, MCDU speed/Mach preset with random preset values.
+//                  selected speed and lateral (also one lateral mode alone), managed CLB/DES terms alone, HDG preset,
+//                  MCDU speed/Mach preset with random preset values, post-TCAS altitude boundaries and a TCAS flicker,
+//                  HDG<->TRK switching at the 5 deg limit.
 //  --sim SEED      pause_on/slew_on/tracking/tailstrike flags toggled (unused by the model), dt = 0 frames, simulation
 //                  time steps backwards or forwards.
 //  --power SEED    computer_running false for 1 frame, 2-10 frames, 0.2-5 s or 5-60 s, flicker, late power-up.
@@ -372,7 +374,7 @@ class BusScenario {
  public:
   enum Kind : int {
     WordSsm = 0, WordBit, WordValue, TcasEndToVs, LevelOffPush, SrsOrTcasOnFmgc1, FdAutoDisengage, MachMode,
-    SpeedManagedSelected, LateralModes, Preset, kKinds
+    SpeedManagedSelected, LateralModes, Preset, VerticalModes, TrkSwitchBoundary, kKinds
   };
 
   explicit BusScenario(uint64_t seed) : rng_(seed) { next_ = rng_.u(1, 20); }
@@ -408,6 +410,7 @@ class BusScenario {
     float value;
     double age = 0, length = 0, split = 0;  // split: phase change time
     int bits;   // random bit pattern for structured episodes
+    bool done = false;
   };
 
   // words the FCU reads, as indices into base_fmgc_a_bus (an array of base_arinc_429)
@@ -433,13 +436,14 @@ class BusScenario {
 
   void start() {
     Episode e{};
-    e.kind = rng_.irand(kKinds);
+    e.kind = rng_.irand(kKinds + 2);
+    if (e.kind >= kKinds) e.kind = TcasEndToVs;  // three times as likely: its branches need exact coincidences
     e.bus = rng_.irand(3);
     e.length = rng_.chance(0.3) ? rng_.u(0.05, 1) : rng_.u(1, 25);
     e.word = readWords()[rng_.irand(static_cast<int>(readWords().size()))];
     e.bit = 11 + rng_.irand(19);
     e.ssm = static_cast<uint32_t>(rng_.irand(4));
-    e.bits = static_cast<int>(rng_.raw() & 0xffff);
+    e.bits = static_cast<int>(rng_.raw() & 0xffffff);
     if (e.word >= wordIndex(&base_fmgc_a_bus::cas_kts) || rng_.chance(0.1)) {
       static const float special[] = {0.0F, -1.0F, 0.78F, 250.0F, 359.9F, 35000.0F, -2000.0F, 1e9F, -1e9F, 0.5F};
       e.value = rng_.chance(0.5) ? special[rng_.irand(10)] : static_cast<float>(rng_.u(-500, 50000));
@@ -452,6 +456,11 @@ class BusScenario {
       e.length = e.split + rng_.u(1, 12);
     }
     if (e.kind == TcasEndToVs) {
+      if (e.bits & 256) {
+        // altitude boundary variant: both buses, RA corrective (not inhibited), V/S-FPA at the end of TCAS
+        e.bus = 2;
+        e.bits = (e.bits & ~(1 | (7 << 3))) | 2;
+      }
       e.split = rng_.u(0.5, 10);
       e.length = e.split + rng_.u(0.0, 1.0) + rng_.u(1, 10);
     }
@@ -472,7 +481,10 @@ class BusScenario {
         forEachBus(e, in, [&](base_fmgc_a_bus& b) { word(b, e.word).SSM = e.ssm; });
         break;
       case WordBit:
-        forEachBus(e, in, [&](base_fmgc_a_bus& b) { setBit(word(b, e.word), e.bit, e.bits & 1); });
+        forEachBus(e, in, [&](base_fmgc_a_bus& b) {
+          setBit(word(b, e.word), e.bit, e.bits & 1);
+          if (e.bits & 4) word(b, e.word).SSM = e.ssm;  // a set bit on a word that is not normal
+        });
         break;
       case WordValue:
         forEachBus(e, in, [&](base_fmgc_a_bus& b) {
@@ -485,7 +497,9 @@ class BusScenario {
         forEachBus(e, in, [&](base_fmgc_a_bus& b) {
           base_arinc_429& w7 = b.discrete_word_7;
           w7.SSM = kNormal;
-          setBit(w7, 13, e.age < e.split);
+          // optionally TCAS back on for 0.1 s just after it ended (two ends within the 0.5 s window)
+          const bool flicker = (e.bits & 512) && e.age >= e.split + 0.1 && e.age < e.split + 0.2;
+          setBit(w7, 13, e.age < e.split || flicker);
           setBit(w7, 24, e.bits & 1);
           setBit(w7, 27, e.bits & 2);
           setBit(w7, 28, e.bits & 4);
@@ -497,6 +511,18 @@ class BusScenario {
             if (e.bits & 128) b.altitude_ft = {kNormal, 31000.0F};
           }
         });
+        if (e.bits & 256) {
+          // the post-TCAS V/S branches at their boundaries: FCU altitude 30000/30100 (set from the sim at the start),
+          // aircraft altitude on or within 0.5 ft of it, or exactly 30000 ft
+          static const float alts[5] = {30000.0F, 30000.5F, 29999.5F, 30099.5F, 30100.0F};
+          if (!e.done) {
+            in.sim_input.alt = (e.bits >> 10 & 1) ? 30100.0F : 30000.0F;
+            e.done = true;
+          }
+          const base_arinc_429 alt{kNormal, alts[(e.bits >> 11) % 5]};
+          in.bus_inputs.fmgc_1_bus.altitude_ft = alt;
+          in.bus_inputs.fmgc_2_bus.altitude_ft = alt;
+        }
         break;
       case LevelOffPush:
         // V/S knob push at the start, V/S-FPA engaged after `split` s
@@ -536,6 +562,14 @@ class BusScenario {
           setBit(b.discrete_word_3, 20, e.bits >> 9 & 1);
           setBit(b.discrete_word_4, 14, e.bits >> 10 & 1);
           if (e.bits >> 11 & 1) b.discrete_word_2.SSM = e.ssm;
+          if (e.bits & 4096) {
+            // exactly one lateral mode bit, nothing armed
+            for (int i = 0; i < 7; i++) setBit(b.discrete_word_2, dw2Bits[i], i == (e.bits >> 13) % 7);
+            b.discrete_word_2.SSM = kNormal;
+            setBit(b.discrete_word_3, 14, false);
+            setBit(b.discrete_word_3, 16, false);
+            setBit(b.discrete_word_4, 14, false);
+          }
         });
         break;
       case Preset:
@@ -546,6 +580,38 @@ class BusScenario {
           b.preset_mach_from_mcdu = {(e.bits & 16) ? kNormal : e.ssm, (e.bits & 32) ? e.value : 0.76F};
         });
         break;
+      case VerticalModes:
+        // word 1 managed CLB/DES terms alone: CLB, DES, (spare) 13, OP, EXP random, every other managed term clear
+        forEachBus(e, in, [&](base_fmgc_a_bus& b) {
+          static const int on[5] = {11, 12, 13, 14, 24};
+          static const int off[7] = {15, 16, 17, 18, 19, 22, 23};
+          b.discrete_word_1.SSM = kNormal;
+          for (int i = 0; i < 5; i++) setBit(b.discrete_word_1, on[i], (e.bits >> i) & 1);
+          for (int bit : off) setBit(b.discrete_word_1, bit, false);
+          setBit(b.discrete_word_4, 14, false);
+          for (int bit = 22; bit <= 25; bit++) setBit(b.discrete_word_3, bit, false);
+        });
+        break;
+      case TrkSwitchBoundary: {
+        // HDG<->TRK switch with the target exactly at / near the 5 deg sync limit, AP engaged
+        static const float refs[4] = {95.0F, 105.0F, 94.99F, 95.01F};
+        auto& d = in.discrete_inputs;
+        d.ap_1_engaged = true;
+        if (in.time.dt > 0 && e.age <= in.time.dt) in.sim_input.hdg_trk = 100.0F;
+        const base_arinc_429 ref{kNormal, refs[e.bits & 3]};
+        for (base_fmgc_a_bus* b : {&in.bus_inputs.fmgc_1_bus, &in.bus_inputs.fmgc_2_bus}) {
+          b->heading_deg = ref;
+          b->track_deg = ref;
+        }
+        setBit(in.bus_inputs.fmgc_1_bus.discrete_word_1, 15, false);
+        setBit(in.bus_inputs.fmgc_1_bus.discrete_word_1, 16, false);
+        setBit(in.bus_inputs.fmgc_1_bus.discrete_word_7, 13, false);
+        if (!e.done && e.age >= 0.2) {
+          d.afs_inputs.trk_fpa_button_pressed = true;
+          e.done = true;
+        }
+        break;
+      }
       default:
         break;
     }
