@@ -85,3 +85,31 @@ struct AircraftSpecificData {
   unsigned long long aircraft_settings_is_realistic_tiller_enabled;
   double aircraft_settings_any_failures_active;
 };
+
+// Personal build (FDR interface 3209002): FMS VNAV state, read from the L:A32NX_FDR_VNAV_* variables the FMS publishes
+// (VnavDriver.FDR_VARS, plus the stock constraint from FMCMainDisplay). Distances in NM, altitudes in ft; -1 when not
+// available. All doubles, in the order of FlightDataRecorder::FMS_VNAV_VARIABLES.
+struct FmsVnavData {
+  double distance_to_end_nm;
+  double total_distance_nm;
+  double along_path_nm;
+  double active_leg_index;
+  double plan_version;
+  double descent_constraint_count;
+  double next_descent_constraint_distance_nm;
+  double next_descent_constraint_alt_ft;
+  double profile_valid;
+  double profile_total_nm;
+  double profile_position_nm;
+  double profile_tod_nm;
+  double profile_end_nm;
+  double profile_target_alt_ft;
+  double linear_deviation_ft;
+  double descent_profile_compute_count;
+  double cost_index;
+  double zero_fuel_weight_t;
+  double cruise_level;
+  double managed_descent_speed_kts;
+  double approach_selected;
+  double stock_constraint_alt_ft;
+};

@@ -6,7 +6,7 @@ use crate::{
         base_fmgc_bus_inputs, base_fmgc_bus_outputs, base_fmgc_discrete_inputs,
         base_fmgc_discrete_outputs, base_fmgc_logic_outputs, base_fms_inputs,
         base_sec_analog_outputs, base_sec_discrete_outputs, base_sec_out_bus, AircraftSpecificData,
-        BaseData, base_fcu_bus, base_fcu_discrete_outputs, base_fcu_logic_outputs, fcu_inputs,
+        BaseData, base_fcu_bus, base_fcu_discrete_outputs, base_fcu_logic_outputs, fcu_inputs, FmsVnavData,
     },
     read_bytes,
 };
@@ -16,6 +16,8 @@ use std::io::{prelude::*, Error};
 pub const INTERFACE_VERSION: u64 = 3200006;
 // Personal build: INTERFACE_VERSION plus the FCU model inputs and outputs at the end of each record
 pub const INTERFACE_VERSION_FCU: u64 = 3209001;
+// Personal build: INTERFACE_VERSION_FCU plus the FMS VNAV state at the end of each record
+pub const INTERFACE_VERSION_FCU_VNAV: u64 = 3209002;
 
 // A single FDR record
 #[derive(Serialize, Default)]
@@ -48,6 +50,24 @@ pub struct FdrDataFcu {
     fmgc_1: FmgcData,
     fadec_1: FadecData,
     fcu: FcuData,
+}
+
+// A single FDR record of INTERFACE_VERSION_FCU_VNAV
+#[derive(Serialize, Default)]
+pub struct FdrDataFcuVnav {
+    base: BaseData,
+    specific: AircraftSpecificData,
+    elac_1: ElacData,
+    elac_2: ElacData,
+    sec_1: SecData,
+    sec_2: SecData,
+    sec_3: SecData,
+    fac_1: FacData,
+    fac_2: FacData,
+    fmgc_1: FmgcData,
+    fadec_1: FadecData,
+    fcu: FcuData,
+    fms_vnav: FmsVnavData,
 }
 
 #[derive(Serialize, Default)]
@@ -112,6 +132,25 @@ pub fn read_record(reader: &mut impl Read) -> Result<FdrData, Error> {
         fac_2: read_fac(reader)?,
         fmgc_1: read_fmgc(reader)?,
         fadec_1: read_fadec(reader)?,
+    })
+}
+
+pub fn read_record_fcu_vnav(reader: &mut impl Read) -> Result<FdrDataFcuVnav, Error> {
+    let r = read_record_fcu(reader)?;
+    Ok(FdrDataFcuVnav {
+        base: r.base,
+        specific: r.specific,
+        elac_1: r.elac_1,
+        elac_2: r.elac_2,
+        sec_1: r.sec_1,
+        sec_2: r.sec_2,
+        sec_3: r.sec_3,
+        fac_1: r.fac_1,
+        fac_2: r.fac_2,
+        fmgc_1: r.fmgc_1,
+        fadec_1: r.fadec_1,
+        fcu: r.fcu,
+        fms_vnav: read_bytes::<FmsVnavData>(reader)?,
     })
 }
 

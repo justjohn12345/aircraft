@@ -212,6 +212,7 @@ export abstract class FMCMainDisplay implements FmsDataInterface, FmsDisplayInte
   public computedVls?: number;
   public approachSpeeds?: NXSpeedsApp; // based on selected config, not current config
   public constraintAlt = 0;
+  private fdrStockDescentConstraint = -1;
   private _progBrgDist?: {
     icao: string;
     ident: string;
@@ -1553,6 +1554,21 @@ export abstract class FMCMainDisplay implements FmsDataInterface, FmsDisplayInte
             constraintAlt = levelOffConstraint;
           }
         }
+      }
+
+      // Personal build: the descent constraint stock would send (the managed profile's next descent altitude when it is
+      // above the FCU altitude in descent), for the flight data recorder (FDR interface 3209002).
+      const stockDescentConstraint =
+        constraints &&
+        this.flightPhaseManager.phase > FmgcFlightPhase.Cruise &&
+        this.flightPhaseManager.phase < FmgcFlightPhase.GoAround &&
+        isFinite(constraints.descentAltitude) &&
+        constraints.descentAltitude > fcuSelAlt
+          ? constraints.descentAltitude
+          : 0;
+      if (stockDescentConstraint !== this.fdrStockDescentConstraint) {
+        this.fdrStockDescentConstraint = stockDescentConstraint;
+        SimVar.SetSimVarValue('L:A32NX_FDR_VNAV_STOCK_CONSTRAINT_ALT', 'feet', stockDescentConstraint);
       }
 
       if (constraintAlt !== this.constraintAlt) {

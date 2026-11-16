@@ -92,6 +92,42 @@ export class VnavDriver implements GuidanceComponent {
   /** The legs of the descent constraints found certainly crossed above at the last constraint target evaluation. */
   private releasedDescentConstraintLegs = new Set<FlightPlanLeg>();
 
+  /**
+   * Personal build: VNAV state published as L:vars for the flight data recorder (FDR interface 3209002), in the order of
+   * the FmsVnavData struct in RecordingDataTypes.h. Each value is written only when it changes.
+   */
+  private static readonly FDR_VARS = [
+    'L:A32NX_FDR_VNAV_DISTANCE_TO_END',
+    'L:A32NX_FDR_VNAV_TOTAL_DISTANCE',
+    'L:A32NX_FDR_VNAV_ALONG_PATH',
+    'L:A32NX_FDR_VNAV_ACTIVE_LEG_INDEX',
+    'L:A32NX_FDR_VNAV_PLAN_VERSION',
+    'L:A32NX_FDR_VNAV_DESCENT_CONSTRAINT_COUNT',
+    'L:A32NX_FDR_VNAV_NEXT_DESCENT_CONSTRAINT_DISTANCE',
+    'L:A32NX_FDR_VNAV_NEXT_DESCENT_CONSTRAINT_ALT',
+    'L:A32NX_FDR_VNAV_PROFILE_VALID',
+    'L:A32NX_FDR_VNAV_PROFILE_TOTAL',
+    'L:A32NX_FDR_VNAV_PROFILE_POSITION',
+    'L:A32NX_FDR_VNAV_PROFILE_TOD',
+    'L:A32NX_FDR_VNAV_PROFILE_END',
+    'L:A32NX_FDR_VNAV_PROFILE_TARGET_ALT',
+    'L:A32NX_FDR_VNAV_LINEAR_DEVIATION',
+    'L:A32NX_FDR_VNAV_DESCENT_PROFILE_COMPUTE_COUNT',
+    'L:A32NX_FDR_VNAV_COST_INDEX',
+    'L:A32NX_FDR_VNAV_ZERO_FUEL_WEIGHT',
+    'L:A32NX_FDR_VNAV_CRUISE_LEVEL',
+    'L:A32NX_FDR_VNAV_MANAGED_DESCENT_SPEED',
+    'L:A32NX_FDR_VNAV_APPROACH_SELECTED',
+  ];
+
+  private readonly fdrValues = new Array<number>(VnavDriver.FDR_VARS.length).fill(NaN);
+
+  private fdrDescentProfileComputeCount = 0;
+
+  private fdrProfileTod: NauticalMiles = -1;
+
+  private fdrProfileEnd: NauticalMiles = -1;
+
   constructor(
     private readonly bus: EventBus,
     private readonly flightPlanService: FlightPlanService,
@@ -153,6 +189,8 @@ export class VnavDriver implements GuidanceComponent {
         this.updateDescentSpeedGuidance();
         this.descentGuidance.update(deltaTime, this.guidanceController.getAlongTrackDistanceToDestination());
       }
+
+      this.publishFdrState();
     } catch (e) {
       console.error('[FMS] Failed to calculate vertical profile. See exception below.');
       console.error(e);
@@ -192,6 +230,13 @@ export class VnavDriver implements GuidanceComponent {
       // TODO: This doesn't really do much, the profile is automatically updated by reference.
       this.descentGuidance.updateProfile(this.profileManager.descentProfile);
       this.decelPoint = this.profileManager.descentProfile.findVerticalCheckpoint(VerticalCheckpointReason.Decel);
+
+      const descentProfile = this.profileManager.descentProfile;
+      const tod = descentProfile.findVerticalCheckpoint(VerticalCheckpointReason.TopOfDescent);
+      const checkpoints = descentProfile.checkpoints;
+      this.fdrDescentProfileComputeCount++;
+      this.fdrProfileTod = tod ? tod.distanceFromStart : -1;
+      this.fdrProfileEnd = checkpoints.length > 0 ? checkpoints[checkpoints.length - 1].distanceFromStart : -1;
     }
 
     if (this.profileManager.mcduProfile.isReadyToDisplay !== this.prevMcduPredReadyToDisplay) {
@@ -357,6 +402,58 @@ export class VnavDriver implements GuidanceComponent {
     this.releasedDescentConstraintLegs = new Set(released.map(({ leg }) => leg));
 
     return altitude;
+  }
+
+  private setFdrValue(index: number, value: number): void {
+    if (this.fdrValues[index] !== value) {
+      this.fdrValues[index] = value;
+      SimVar.SetSimVarValue(VnavDriver.FDR_VARS[index], 'number', value);
+    }
+  }
+
+  /** Personal build: publishes the VNAV state for the flight data recorder (see {@link VnavDriver.FDR_VARS}). */
+  private publishFdrState(): void {
+    const reader = this.constraintReader;
+    const plan = this.flightPlanService.hasActive ? this.flightPlanService.active : undefined;
+    const alongPath = reader.distanceToPresentPosition;
+
+    let nextConstraintDistance = -1;
+    let nextConstraintAltitude = -1;
+    const constraints = reader.descentAltitudeConstraints;
+    for (let i = 0; i < constraints.length; i++) {
+      if (constraints[i].distanceFromStart > alongPath) {
+        nextConstraintDistance = constraints[i].distanceFromStart - alongPath;
+        nextConstraintAltitude =
+          VnavDriver.getDescentConstraintMinimumAltitude(constraints[i].constraint) ??
+          constraints[i].constraint.altitude1;
+        break;
+      }
+    }
+
+    const rel = this.aircraftToDescentProfileRelation;
+    const performance = plan?.performanceData;
+
+    this.setFdrValue(0, reader.distanceToEnd);
+    this.setFdrValue(1, reader.totalFlightPlanDistance);
+    this.setFdrValue(2, alongPath);
+    this.setFdrValue(3, plan ? plan.activeLegIndex : -1);
+    this.setFdrValue(4, plan ? plan.version : -1);
+    this.setFdrValue(5, constraints.length);
+    this.setFdrValue(6, nextConstraintDistance);
+    this.setFdrValue(7, nextConstraintAltitude);
+    this.setFdrValue(8, rel.isValid ? 1 : 0);
+    this.setFdrValue(9, rel.isValid ? rel.totalFlightPlanDistance : -1);
+    this.setFdrValue(10, rel.isValid ? rel.distanceFromStart : -1);
+    this.setFdrValue(11, this.fdrProfileTod);
+    this.setFdrValue(12, this.fdrProfileEnd);
+    this.setFdrValue(13, rel.isValid ? rel.currentTargetAltitude() : -1);
+    this.setFdrValue(14, rel.isValid ? rel.computeLinearDeviation() : 0);
+    this.setFdrValue(15, this.fdrDescentProfileComputeCount);
+    this.setFdrValue(16, performance?.costIndex.get() ?? -1);
+    this.setFdrValue(17, performance?.zeroFuelWeight.get() ?? -1);
+    this.setFdrValue(18, performance?.cruiseFlightLevel.get() ?? -1);
+    this.setFdrValue(19, this.computationParametersObserver.get().managedDescentSpeed ?? -1);
+    this.setFdrValue(20, plan?.approach ? 1 : 0);
   }
 
   private static getVerticalSpeed(): FeetPerMinute | null {
