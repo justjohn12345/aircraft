@@ -55,9 +55,16 @@ describe('findDescentConstraintTarget', () => {
     expect(findDescentConstraintTarget(100, 9000, null, GS, CONSTRAINTS, FCU_ALTITUDE)).toBe(8000);
   });
 
-  it('skips constraints the aircraft is already at or below', () => {
+  it('skips constraints the aircraft is already below', () => {
     expect(findDescentConstraintTarget(105, 7000, VS, GS, CONSTRAINTS, FCU_ALTITUDE)).toBe(6000);
-    expect(findDescentConstraintTarget(105, 8010, VS, GS, CONSTRAINTS, FCU_ALTITUDE)).toBe(6000);
+    expect(findDescentConstraintTarget(105, 7970, VS, GS, CONSTRAINTS, FCU_ALTITUDE)).toBe(6000);
+  });
+
+  it('keeps a constraint the aircraft is level at as the target', () => {
+    // Levelled off at 8000 ft with the FCU altitude, which is then set lower before BARET (KSJC-KLAS, findings C14)
+    expect(findDescentConstraintTarget(100, 8000, 0, GS, CONSTRAINTS, FCU_ALTITUDE)).toBe(8000);
+    expect(findDescentConstraintTarget(100, 7990, 0, GS, CONSTRAINTS, FCU_ALTITUDE)).toBe(8000);
+    expect(findDescentConstraintTarget(100, 8015, VS, GS, CONSTRAINTS, FCU_ALTITUDE)).toBe(8000);
   });
 
   it('skips constraints behind the aircraft', () => {
