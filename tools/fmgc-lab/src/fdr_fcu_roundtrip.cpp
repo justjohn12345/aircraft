@@ -2,10 +2,10 @@
 //
 // SPDX-License-Identifier: GPL-3.0
 
-// Round trip of the personal FDR format 3209001 (3200006 plus the FCU): writes a synthetic file field by field in the
+// Round trip of the personal FDR formats 3209001 (3200006 plus the FCU) and, with --vnav, 3209002 (plus the FMS VNAV state): writes a synthetic file field by field in the
 // order of FlightDataRecorder::update() / writeFcu(), with marker values, and reads it back with FdrReader. The file
 // is kept for checking fdr2csv on it.
-// Usage: fdr-fcu-roundtrip <out.fdr>
+// Usage: fdr-fcu-roundtrip <out.fdr> [--vnav]
 
 #include <zlib.h>
 #include <cstdio>
@@ -33,6 +33,9 @@ void fill(FdrFrame& fr, int i) {
   fr.fcu.discrete_outputs.afs_outputs.spd_mach_managed = i % 2;
   fr.fcu.bus_outputs.selected_spd_kts.Data = 123.5F + i;
   fr.fcu.bus_outputs.fcu_discrete_word_1.Data = static_cast<float>(1 << 14);
+  fr.fmsVnav.distance_to_end_nm = 120.5 + i;
+  fr.fmsVnav.profile_target_alt_ft = 21000 + i;
+  fr.fmsVnav.stock_constraint_alt_ft = 14000 + i;  // last field
 }
 
 }  // namespace
@@ -43,9 +46,10 @@ int main(int argc, char** argv) {
     return 2;
   }
   constexpr int kFrames = 3;
+  const bool vnav = argc > 2 && std::strcmp(argv[2], "--vnav") == 0;
   auto fr = std::make_unique<FdrFrame>();
   gzFile f = gzopen(argv[1], "wb");
-  put(f, FDR_INTERFACE_VERSION_FCU);
+  put(f, vnav ? FDR_INTERFACE_VERSION_FCU_VNAV : FDR_INTERFACE_VERSION_FCU);
   for (int i = 0; i < kFrames; i++) {
     fill(*fr, i);
     put(f, fr->base);
@@ -64,6 +68,9 @@ int main(int argc, char** argv) {
     put(f, m.bus_outputs), put(f, m.bus_inputs), put(f, m.discrete_inputs), put(f, m.fms_inputs);
     put(f, fr->fadec[0].bus_outputs), put(f, fr->fadec[0].outputs);
     put(f, fr->fcu.inputs), put(f, fr->fcu.logic), put(f, fr->fcu.discrete_outputs), put(f, fr->fcu.bus_outputs);
+    if (vnav) {
+      put(f, fr->fmsVnav);
+    }
   }
   gzclose(f);
 
@@ -80,7 +87,8 @@ int main(int argc, char** argv) {
     const bool same = got->hasFcu && got->base.simulation_time_s == expected->base.simulation_time_s &&
                       got->fmgc1.fms_inputs.v_managed_kts == expected->fmgc1.fms_inputs.v_managed_kts &&
                       got->fadec[0].outputs.N1_c_percent == expected->fadec[0].outputs.N1_c_percent &&
-                      std::memcmp(&got->fcu, &expected->fcu, sizeof(FcuRecord)) == 0;
+                      std::memcmp(&got->fcu, &expected->fcu, sizeof(FcuRecord)) == 0 && got->hasFmsVnav == vnav &&
+                      (!vnav || std::memcmp(&got->fmsVnav, &expected->fmsVnav, sizeof(FmsVnavRecord)) == 0);
     if (!same) {
       std::fprintf(stderr, "FAIL: frame %d differs\n", n);
       return 1;
