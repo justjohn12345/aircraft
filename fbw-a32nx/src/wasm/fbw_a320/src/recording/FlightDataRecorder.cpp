@@ -17,6 +17,9 @@ using namespace mINI;
 void FlightDataRecorder::initialize() {
   // create local variables
   idIsEnabled = std::make_unique<LocalVariable>("A32NX_FDR_ENABLED");
+  for (size_t i = 0; i < FMS_VNAV_VARIABLE_COUNT; i++) {
+    fmsVnavVariables[i] = std::make_unique<LocalVariable>(FMS_VNAV_VARIABLES[i]);
+  }
 
   // load configuration
   loadConfiguration();
@@ -74,6 +77,7 @@ void FlightDataRecorder::update(const BaseData& baseData,
 
   // write FCU data
   writeFcu(fcu);
+  writeFmsVnav();
 
   recordsInCurrentFile++;
   totalRecords++;
@@ -122,6 +126,15 @@ void FlightDataRecorder::writeFadec(FadecComputer& fadec) {
   auto outputs = fadec.getExternalOutputs().out;
   fileStream->write((char*)(&outputs.fadec_bus_output), sizeof(outputs.fadec_bus_output));
   fileStream->write((char*)(&outputs.output), sizeof(outputs.output));
+}
+
+void FlightDataRecorder::writeFmsVnav() {
+  FmsVnavData data;
+  double* values = reinterpret_cast<double*>(&data);
+  for (size_t i = 0; i < FMS_VNAV_VARIABLE_COUNT; i++) {
+    values[i] = fmsVnavVariables[i]->get();
+  }
+  fileStream->write((char*)(&data), sizeof(data));
 }
 
 void FlightDataRecorder::writeFcu(const Fcu& fcu) {
