@@ -31,6 +31,24 @@ void Fcu::update(double deltaTime,
   fcuComputer.setExternalInputs(&modelInputs);
   fcuComputer.step();
   modelOutputs = fcuComputer.getExternalOutputs().out;
+
+  maskSpdMachValueChange(deltaTime);
+}
+
+void Fcu::maskSpdMachValueChange(double deltaTime) {
+  // In managed speed the model's SPD/MACH memory follows the current speed/Mach target (rounded to 1 kt / 0.01), and the
+  // "SPD/MACH value changed" bit (word 1 bit 15) pulses whenever that rounded value moves, e.g. when the cruise Mach
+  // drifts across 0.xx5. The FMGC takes the bit as a pilot speed change and drops the ALT soft mode (FCOM
+  // DSC-22_30-70-70), so the A/THR goes back to full gain. Only pass the bit in managed speed when the pilot used the
+  // SPD/MACH controls (or set a value from the sim) during the pulse.
+  const auto& afs = modelInputs.in.discrete_inputs.afs_inputs;
+  const bool pilotInput = afs.spd_knob.turns != 0 || afs.spd_knob.pushed || afs.spd_knob.pulled || afs.spd_mach_button_pressed ||
+                          modelInputs.in.sim_input.spd_mach != -1.0F;
+  timeSinceSpdMachPilotInput = pilotInput ? 0 : timeSinceSpdMachPilotInput + deltaTime;
+
+  if (modelOutputs.discrete_outputs.afs_outputs.spd_mach_managed && timeSinceSpdMachPilotInput > spdMachValueChangePulseDuration) {
+    Arinc429Utils::setBit(modelOutputs.bus_outputs.fcu_discrete_word_1, 15, false);
+  }
 }
 
 void Fcu::monitorSelf(bool faultActive, int index) {

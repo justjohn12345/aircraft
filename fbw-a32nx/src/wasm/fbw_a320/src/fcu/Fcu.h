@@ -22,6 +22,8 @@ class Fcu {
 
   void updateSelfTest(double deltaTime, int index);
 
+  void maskSpdMachValueChange(double deltaTime);
+
   // Model
   FcuComputer fcuComputer;
   fcu_outputs modelOutputs;
@@ -43,7 +45,12 @@ class Fcu {
 
   bool selfTestComplete[2];
 
+  // SPD/MACH value change masking in managed speed
+  double timeSinceSpdMachPilotInput = 0;
+
   // Constants
   const double minimumPowerOutageTimeForFailure = 0.02;
   const double selfTestDuration = 4;
+  // The model's value change pulse lasts 0.5 s; pass the bit for 1 s after a pilot input
+  const double spdMachValueChangePulseDuration = 1;
 };
