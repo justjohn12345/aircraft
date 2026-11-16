@@ -122,6 +122,37 @@ export class VnavDriver implements GuidanceComponent {
 
   private readonly fdrValues = new Array<number>(VnavDriver.FDR_VARS.length).fill(NaN);
 
+  /**
+   * Personal build: descent and MCDU profile diagnostics for the FDR (interface 3209003), in the order of the
+   * FmsVnavDiagData struct in RecordingDataTypes.h. Updated when the profiles are computed.
+   */
+  private static readonly FDR_DIAG_VARS = [
+    'L:A32NX_FDR_VNAV_DESC_CHECKPOINT_COUNT',
+    'L:A32NX_FDR_VNAV_DESC_DROPPED_COUNT',
+    'L:A32NX_FDR_VNAV_DESC_FIRST_DROPPED_REASON',
+    'L:A32NX_FDR_VNAV_DESC_OUT_OF_ORDER',
+    'L:A32NX_FDR_VNAV_DESC_FIRST_DISTANCE',
+    'L:A32NX_FDR_VNAV_DESC_FIRST_ALT',
+    'L:A32NX_FDR_VNAV_DESC_FIRST_REASON',
+    'L:A32NX_FDR_VNAV_DESC_TOD_ALT',
+    'L:A32NX_FDR_VNAV_DESC_GEOMETRIC_PATH_START',
+    'L:A32NX_FDR_VNAV_DESC_DECEL',
+    'L:A32NX_FDR_VNAV_EST_DEST_FUEL',
+    'L:A32NX_FDR_VNAV_APPROACH_SPEED',
+    'L:A32NX_FDR_VNAV_DESCENT_WIND_COUNT',
+    'L:A32NX_FDR_VNAV_CRUISE_WIND_LEG_COUNT',
+    'L:A32NX_FDR_VNAV_CLIMB_WIND_COUNT',
+    'L:A32NX_FDR_VNAV_MCDU_READY',
+    'L:A32NX_FDR_VNAV_MCDU_TOD',
+    'L:A32NX_FDR_VNAV_MCDU_CHECKPOINT_COUNT',
+    'L:A32NX_FDR_VNAV_MCDU_DROPPED_COUNT',
+    'L:A32NX_FDR_VNAV_MCDU_FIRST_DROPPED_REASON',
+  ];
+
+  private readonly fdrDiagValues = new Array<number>(VnavDriver.FDR_DIAG_VARS.length).fill(-1);
+
+  private readonly fdrDiagPublished = new Array<number>(VnavDriver.FDR_DIAG_VARS.length).fill(NaN);
+
   private fdrDescentProfileComputeCount = 0;
 
   private fdrProfileTod: NauticalMiles = -1;
@@ -237,7 +268,10 @@ export class VnavDriver implements GuidanceComponent {
       this.fdrDescentProfileComputeCount++;
       this.fdrProfileTod = tod ? tod.distanceFromStart : -1;
       this.fdrProfileEnd = checkpoints.length > 0 ? checkpoints[checkpoints.length - 1].distanceFromStart : -1;
+      this.updateFdrDescentDiagnostics(newParameters);
     }
+
+    this.updateFdrMcduDiagnostics();
 
     if (this.profileManager.mcduProfile.isReadyToDisplay !== this.prevMcduPredReadyToDisplay) {
       SimVar.SetSimVarValue(
@@ -404,6 +438,56 @@ export class VnavDriver implements GuidanceComponent {
     return altitude;
   }
 
+  /** Personal build: diagnostics of the descent profile just computed (see {@link VnavDriver.FDR_DIAG_VARS}). */
+  private updateFdrDescentDiagnostics(parameters: VerticalProfileComputationParameters): void {
+    const profile = this.profileManager.descentProfile;
+    const checkpoints = profile.checkpoints;
+    const first = checkpoints[0];
+    const tod = profile.findVerticalCheckpoint(VerticalCheckpointReason.TopOfDescent);
+    const geometricPathStart = profile.findVerticalCheckpoint(VerticalCheckpointReason.GeometricPathStart);
+    const d = this.fdrDiagValues;
+
+    d[0] = checkpoints.length;
+    d[1] = profile.droppedCheckpointCount;
+    d[2] = profile.firstDroppedCheckpointReason;
+    d[3] = profile.wasOutOfOrder ? 1 : 0;
+    d[4] = first ? first.distanceFromStart : -1;
+    d[5] = first ? first.altitude : -1;
+    d[6] = first ? BaseGeometryProfile.reasonIndex(first.reason) : -1;
+    d[7] = tod ? tod.altitude : -1;
+    d[8] = geometricPathStart ? geometricPathStart.distanceFromStart : -1;
+    d[9] = this.decelPoint ? this.decelPoint.distanceFromStart : -1;
+    d[10] = parameters.estimatedDestinationFuel ?? -1;
+    d[11] = parameters.approachSpeed ?? -1;
+
+    const plan = this.flightPlanService.hasActive ? this.flightPlanService.active : undefined;
+    let cruiseWindLegs = 0;
+    if (plan) {
+      for (let i = 0; i < plan.firstMissedApproachLegIndex; i++) {
+        const leg = plan.maybeElementAt(i);
+        if (leg && leg.isDiscontinuity === false && leg.cruiseWindEntries.length > 0) {
+          cruiseWindLegs++;
+        }
+      }
+    }
+    d[12] = plan ? plan.performanceData.descentWindEntries.get().length : -1;
+    d[13] = cruiseWindLegs;
+    d[14] = plan ? plan.performanceData.climbWindEntries.get().length : -1;
+  }
+
+  /** Personal build: diagnostics of the MCDU profile (see {@link VnavDriver.FDR_DIAG_VARS}). */
+  private updateFdrMcduDiagnostics(): void {
+    const profile = this.profileManager.mcduProfile;
+    const d = this.fdrDiagValues;
+    const tod = profile?.findVerticalCheckpoint(VerticalCheckpointReason.TopOfDescent);
+
+    d[15] = profile?.isReadyToDisplay ? 1 : 0;
+    d[16] = tod ? tod.distanceFromStart : -1;
+    d[17] = profile ? profile.checkpoints.length : -1;
+    d[18] = profile ? profile.droppedCheckpointCount : -1;
+    d[19] = profile ? profile.firstDroppedCheckpointReason : -1;
+  }
+
   private setFdrValue(index: number, value: number): void {
     if (this.fdrValues[index] !== value) {
       this.fdrValues[index] = value;
@@ -454,6 +538,15 @@ export class VnavDriver implements GuidanceComponent {
     this.setFdrValue(18, performance?.cruiseFlightLevel.get() ?? -1);
     this.setFdrValue(19, this.computationParametersObserver.get().managedDescentSpeed ?? -1);
     this.setFdrValue(20, plan?.approach ? 1 : 0);
+
+    for (let i = 0; i < this.fdrDiagValues.length; i++) {
+      // NaN !== NaN, so a non-finite value is written as -2 to keep it recognisable and written once
+      const value = Number.isFinite(this.fdrDiagValues[i]) ? this.fdrDiagValues[i] : -2;
+      if (this.fdrDiagPublished[i] !== value) {
+        this.fdrDiagPublished[i] = value;
+        SimVar.SetSimVarValue(VnavDriver.FDR_DIAG_VARS[i], 'number', value);
+      }
+    }
   }
 
   private static getVerticalSpeed(): FeetPerMinute | null {

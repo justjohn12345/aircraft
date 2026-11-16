@@ -36,6 +36,17 @@ export abstract class BaseGeometryProfile {
 
   public checkpoints: VerticalCheckpoint[] = [];
 
+  /**
+   * Number of checkpoints that {@link finalizeProfile} dropped because their distance or altitude was not finite, and
+   * the reason of the first one (-1 if none). Personal build diagnostics, recorded by the FDR.
+   */
+  public droppedCheckpointCount = 0;
+
+  public firstDroppedCheckpointReason = -1;
+
+  /** Whether the checkpoints were out of distance order before {@link finalizeProfile} sorted them. */
+  public wasOutOfOrder = false;
+
   abstract get maxAltitudeConstraints(): MaxAltitudeConstraint[];
 
   abstract get descentAltitudeConstraints(): DescentAltitudeConstraint[];
@@ -433,11 +444,49 @@ export abstract class BaseGeometryProfile {
     this.checkpoints.push(...checkpoints);
   }
 
+  // Filled on first use: NavGeometryProfile (which defines VerticalCheckpointReason) imports this module, so the enum is
+  // not defined yet while this class is initialised.
+  private static checkpointReasons: string[] | null = null;
+
+  /** Index of a checkpoint reason in {@link VerticalCheckpointReason}, for the FDR. */
+  static reasonIndex(reason: VerticalCheckpointReason): number {
+    if (BaseGeometryProfile.checkpointReasons === null) {
+      BaseGeometryProfile.checkpointReasons = Object.values(VerticalCheckpointReason) as string[];
+    }
+    return BaseGeometryProfile.checkpointReasons.indexOf(reason);
+  }
+
   sortCheckpoints() {
     this.checkpoints.sort((a, b) => a.distanceFromStart - b.distanceFromStart);
   }
 
   finalizeProfile() {
+    // A checkpoint with a non-finite distance makes the sort order undefined, and the distance interpolations then fall
+    // through to the last checkpoint (e.g. the descent path target became the landing elevation everywhere). Drop such
+    // checkpoints instead.
+    this.droppedCheckpointCount = 0;
+    this.firstDroppedCheckpointReason = -1;
+    this.wasOutOfOrder = false;
+    let kept = 0;
+    for (let i = 0; i < this.checkpoints.length; i++) {
+      const checkpoint = this.checkpoints[i];
+      if (!Number.isFinite(checkpoint.distanceFromStart) || !Number.isFinite(checkpoint.altitude)) {
+        if (this.droppedCheckpointCount === 0) {
+          this.firstDroppedCheckpointReason = BaseGeometryProfile.reasonIndex(checkpoint.reason);
+          console.warn(
+            `[FMS/VNAV] Dropped checkpoint ${checkpoint.reason} with distance ${checkpoint.distanceFromStart} and altitude ${checkpoint.altitude}`,
+          );
+        }
+        this.droppedCheckpointCount++;
+        continue;
+      }
+      if (kept > 0 && checkpoint.distanceFromStart < this.checkpoints[kept - 1].distanceFromStart) {
+        this.wasOutOfOrder = true;
+      }
+      this.checkpoints[kept++] = checkpoint;
+    }
+    this.checkpoints.length = kept;
+
     this.sortCheckpoints();
 
     this.isReadyToDisplay = true;

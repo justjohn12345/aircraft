@@ -20,6 +20,9 @@ void FlightDataRecorder::initialize() {
   for (size_t i = 0; i < FMS_VNAV_VARIABLE_COUNT; i++) {
     fmsVnavVariables[i] = std::make_unique<LocalVariable>(FMS_VNAV_VARIABLES[i]);
   }
+  for (size_t i = 0; i < FMS_VNAV_DIAG_VARIABLE_COUNT; i++) {
+    fmsVnavDiagVariables[i] = std::make_unique<LocalVariable>(FMS_VNAV_DIAG_VARIABLES[i]);
+  }
 
   // load configuration
   loadConfiguration();
@@ -135,6 +138,13 @@ void FlightDataRecorder::writeFmsVnav() {
     values[i] = fmsVnavVariables[i]->get();
   }
   fileStream->write((char*)(&data), sizeof(data));
+
+  FmsVnavDiagData diag;
+  double* diagValues = reinterpret_cast<double*>(&diag);
+  for (size_t i = 0; i < FMS_VNAV_DIAG_VARIABLE_COUNT; i++) {
+    diagValues[i] = fmsVnavDiagVariables[i]->get();
+  }
+  fileStream->write((char*)(&diag), sizeof(diag));
 }
 
 void FlightDataRecorder::writeFcu(const Fcu& fcu) {
