@@ -161,6 +161,48 @@ foreach(variant ${MODEL_VARIANTS})
   target_link_libraries(fmgc-check-fmgc-${name} PRIVATE fmgc_readable_${name} fmgc_model_${name} ZLIB::ZLIB -static)
 endforeach()
 
+# ---- FCU (readable FCU phase): the generated FcuComputer, its replay over 3209001 recordings, the readable FCU
+# (readable/fcu/) and its differential check. The FCU model needs no look-up/rt helpers.
+set(READABLE_FCU_SOURCES
+  readable/fcu/fcu.cpp readable/fcu/fmgc_interface.cpp readable/fcu/afs_controls.cpp readable/fcu/speed_window.cpp
+  readable/fcu/heading_window.cpp readable/fcu/altitude_window.cpp readable/fcu/vs_fpa_window.cpp
+  readable/fcu/efis_panel.cpp readable/fcu/output_packing.cpp)
+foreach(variant ${MODEL_VARIANTS})
+  string(REPLACE "=" ";" parts ${variant})
+  list(GET parts 0 name)
+  list(GET parts 1 dir)
+  set(gen_dir ${CMAKE_CURRENT_BINARY_DIR}/gen-${name})
+  add_custom_command(
+    OUTPUT ${gen_dir}/fcu_fields.gen.h
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${gen_dir}
+    COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_fields.py ${dir}/FcuComputer_types.h
+            ${gen_dir}/fcu_fields.gen.h fcu_outputs,fcu_inputs
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_fields.py ${dir}/FcuComputer_types.h)
+
+  add_library(fcu_model_${name} STATIC ${dir}/FcuComputer.cpp ${dir}/FcuComputer_data.cpp)
+  target_include_directories(fcu_model_${name} PUBLIC ${dir})
+  target_compile_options(fcu_model_${name} PRIVATE -O2 -ffp-contract=off)
+
+  add_library(fcu_readable_${name} STATIC ${READABLE_FCU_SOURCES})
+  target_include_directories(fcu_readable_${name} PUBLIC ${dir} readable readable/fcu)
+  target_compile_options(fcu_readable_${name} PRIVATE -O2 -ffp-contract=off)
+
+  add_executable(fcu-replay-${name} src/fcu_replay.cpp ${gen_dir}/fcu_fields.gen.h)
+  target_include_directories(fcu-replay-${name} PRIVATE ${gen_dir} ${WASM_SRC} src)
+  target_compile_options(fcu-replay-${name} PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(fcu-replay-${name} PRIVATE fcu_model_${name} ZLIB::ZLIB -static)
+
+  add_executable(fcu-synth-fdr-${name} src/fcu_synth_fdr.cpp)
+  target_include_directories(fcu-synth-fdr-${name} PRIVATE ${WASM_SRC} src)
+  target_compile_options(fcu-synth-fdr-${name} PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(fcu-synth-fdr-${name} PRIVATE fcu_model_${name} ZLIB::ZLIB -static)
+
+  add_executable(fcu-check-${name} src/check_fcu.cpp ${gen_dir}/fcu_fields.gen.h)
+  target_include_directories(fcu-check-${name} PRIVATE ${gen_dir} ${WASM_SRC} src)
+  target_compile_options(fcu-check-${name} PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(fcu-check-${name} PRIVATE fcu_readable_${name} fcu_model_${name} ZLIB::ZLIB -static)
+endforeach()
+
 # Control-law checks (Phase 3): an instrumented copy of the stock model (outer-loop call hooks and probes), never the
 # repo's model/ folder. Built when a variant named "stock" exists.
 foreach(variant ${MODEL_VARIANTS})
@@ -279,6 +321,19 @@ if(FMGC_FUZZ)
 
   fuzz_tool(fmgc-fuzz-bank src/fuzz_bank.cpp)
   target_link_libraries(fmgc-fuzz-bank PRIVATE fmgc_readable_${fuzz_name} fmgc_model_${fuzz_name} ZLIB::ZLIB -static)
+
+  # FCU: source-based coverage of the generated FcuComputer.cpp and of the readable FCU, driven by the differential
+  # checker (scripts/check-fcu-corpus.sh with COVERAGE=1)
+  add_library(fcu_model_cov STATIC ${fuzz_dir}/FcuComputer.cpp ${fuzz_dir}/FcuComputer_data.cpp)
+  target_include_directories(fcu_model_cov PUBLIC ${fuzz_dir})
+  target_compile_options(fcu_model_cov PRIVATE -O2 -ffp-contract=off -fprofile-instr-generate -fcoverage-mapping)
+  add_library(fcu_readable_cov STATIC ${READABLE_FCU_SOURCES})
+  target_include_directories(fcu_readable_cov PUBLIC ${fuzz_dir} readable readable/fcu)
+  target_compile_options(fcu_readable_cov PRIVATE -O2 -ffp-contract=off -fprofile-instr-generate -fcoverage-mapping)
+  add_executable(fcu-cov-check src/check_fcu.cpp ${fuzz_gen}/fcu_fields.gen.h)
+  target_include_directories(fcu-cov-check PRIVATE ${fuzz_gen} ${WASM_SRC} src)
+  target_compile_options(fcu-cov-check PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(fcu-cov-check PRIVATE fcu_readable_cov fcu_model_cov ZLIB::ZLIB -fprofile-instr-generate -static)
 endif()
 
 # Round trip of the personal FDR format with the FCU (3209001): writes a synthetic file and reads it back.
