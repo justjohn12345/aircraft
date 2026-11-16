@@ -36,7 +36,8 @@ export interface DescentConstraintTargetResult<T extends DescentTargetConstraint
 /**
  * Selects the descent altitude constraint the FMS sends to the FG as altitude target: the next constraint ahead above
  * the FCU altitude, unless the aircraft certainly crosses it above its altitude, in which case no level-off happens
- * there and the following constraint is used.
+ * there and the following constraint is used. Constraints the aircraft is already below are skipped; one it is level
+ * at is the target.
  *
  * A constraint is certainly crossed above when the altitude still to lose before it is more than the aircraft can lose
  * over the remaining distance, even at the steeper of {@link DESCENT_CONSTRAINT_MAX_GRADIENT} and
@@ -71,10 +72,16 @@ export function findDescentConstraintTarget<T extends DescentTargetConstraint>(
     if (
       constraint.distanceFromStart <= presentDistanceFromStart ||
       constraint.minimumAltitude <= fcuAltitude + DESCENT_CONSTRAINT_ALTITUDE_TOLERANCE ||
-      // Already at or below the constraint: it cannot be captured in descent (holding it is handled by the caller)
-      altitude <= constraint.minimumAltitude + DESCENT_CONSTRAINT_ALTITUDE_TOLERANCE
+      // Already below the constraint: it cannot be captured in descent anymore
+      altitude < constraint.minimumAltitude - DESCENT_CONSTRAINT_ALTITUDE_TOLERANCE
     ) {
       continue;
+    }
+
+    // Level at the constraint, e.g. after a level-off at the FCU altitude that the pilot then sets lower: the constraint
+    // stays the target, so that the aircraft holds it until the waypoint.
+    if (altitude <= constraint.minimumAltitude + DESCENT_CONSTRAINT_ALTITUDE_TOLERANCE) {
+      return { altitude: constraint.minimumAltitude, released };
     }
 
     const distanceToGo = constraint.distanceFromStart - presentDistanceFromStart;
