@@ -29,13 +29,16 @@ import {
   VerticalCheckpointReason,
   VerticalWaypointPrediction,
 } from './profile/NavGeometryProfile';
-import { LegType, MathUtils } from '@flybywiresim/fbw-sdk';
+import { AltitudeConstraint, Arinc429Word, LegType, MathUtils, RegisteredSimVar } from '@flybywiresim/fbw-sdk';
 import { EventBus } from '@microsoft/msfs-sdk';
 import { FlightPlanIndex } from '../../flightplanning/FlightPlanManager';
 import { VnavConfig } from './VnavConfig';
-import { isLeg } from '../../flightplanning/legs/FlightPlanLeg';
+import { FlightPlanLeg, isLeg } from '../../flightplanning/legs/FlightPlanLeg';
+import { DescentTargetConstraint, findDescentConstraintTarget } from './descent/DescentConstraintTarget';
 
 export class VnavDriver implements GuidanceComponent {
+  private static readonly groundSpeedVar = RegisteredSimVar.create<Knots>('GPS GROUND SPEED', 'knots');
+
   version: number = 0;
 
   private listener = RegisterViewListener('JS_LISTENER_SIMVARS', null, true);
@@ -71,6 +74,9 @@ export class VnavDriver implements GuidanceComponent {
   private requestDescentProfileRecomputation: boolean = false;
 
   private prevMcduPredReadyToDisplay = false;
+
+  /** The legs of the descent constraints found certainly crossed above at the last constraint target evaluation. */
+  private releasedDescentConstraintLegs = new Set<FlightPlanLeg>();
 
   constructor(
     private readonly bus: EventBus,
@@ -254,6 +260,107 @@ export class VnavDriver implements GuidanceComponent {
 
   get ndProfile(): BaseGeometryProfile | undefined {
     return this.profileManager.ndProfile;
+  }
+
+  /**
+   * Returns the descent altitude constraint to use as the FG altitude target: the next constraint ahead, unless the
+   * aircraft certainly crosses it above its altitude, so that no level-off happens there. In that case the following
+   * constraint is used.
+   * @param fcuAltitude FCU selected altitude
+   * @param currentFgTarget the constraint currently sent to the FG, or 0 if none
+   * @param highestConstraintAhead the highest descent altitude constraint lower limit ahead of the aircraft
+   * @returns the constraint altitude, or null if the FCU altitude is the target
+   */
+  getDescentConstraintAltitudeTarget(
+    fcuAltitude: Feet,
+    currentFgTarget: Feet,
+    highestConstraintAhead: Feet,
+  ): Feet | null {
+    const { fcuVerticalMode, presentPosition } = this.computationParametersObserver.get();
+
+    // A target change during ALT CST* reverts to V/S, so complete the capture of a constraint even if it is sequenced
+    // meanwhile. Once it is held in ALT CST, keep it as the target until it is sequenced.
+    if (currentFgTarget > fcuAltitude) {
+      if (fcuVerticalMode === VerticalMode.ALT_CST_CPT) {
+        return currentFgTarget;
+      }
+      if (fcuVerticalMode === VerticalMode.ALT_CST && highestConstraintAhead >= currentFgTarget) {
+        return currentFgTarget;
+      }
+    }
+
+    if (!this.isLatAutoControlActive()) {
+      this.releasedDescentConstraintLegs.clear();
+      return null;
+    }
+
+    // Only consider constraints that are not sequenced yet. The distances of sequenced legs are not updated anymore, and
+    // a fly-by waypoint is sequenced before the aircraft passes abeam it, so they can appear to be still ahead.
+    const plan = this.flightPlanService.active;
+    const legsAhead = new Set<FlightPlanLeg>();
+    for (let i = plan.activeLegIndex; i < plan.firstMissedApproachLegIndex; i++) {
+      const element = plan.maybeElementAt(i);
+      if (element && element.isDiscontinuity === false) {
+        legsAhead.add(element);
+      }
+    }
+
+    const constraints: (DescentTargetConstraint & { leg: FlightPlanLeg })[] = [];
+    for (const { distanceFromStart, constraint, leg } of this.constraintReader.descentAltitudeConstraints) {
+      const minimumAltitude = VnavDriver.getDescentConstraintMinimumAltitude(constraint);
+      if (minimumAltitude !== undefined && legsAhead.has(leg)) {
+        constraints.push({
+          distanceFromStart,
+          minimumAltitude,
+          wasReleased: this.releasedDescentConstraintLegs.has(leg),
+          leg,
+        });
+      }
+    }
+
+    const { altitude, released } = findDescentConstraintTarget(
+      this.constraintReader.distanceToPresentPosition,
+      presentPosition.alt,
+      VnavDriver.getVerticalSpeed(),
+      VnavDriver.groundSpeedVar.get(),
+      constraints,
+      fcuAltitude,
+    );
+
+    this.releasedDescentConstraintLegs = new Set(released.map(({ leg }) => leg));
+
+    return altitude;
+  }
+
+  private static getVerticalSpeed(): FeetPerMinute | null {
+    const inertialVs = Arinc429Word.fromSimVarValue('L:A32NX_ADIRS_IR_1_VERTICAL_SPEED');
+    if (inertialVs.isNormalOperation()) {
+      return inertialVs.value;
+    }
+
+    const barometricVs = Arinc429Word.fromSimVarValue('L:A32NX_ADIRS_ADR_1_BAROMETRIC_VERTICAL_SPEED');
+    if (barometricVs.isNormalOperation()) {
+      return barometricVs.value;
+    }
+
+    return null;
+  }
+
+  /** The lowest altitude a descent constraint allows, using the same descriptors as the FMS constraint propagation. */
+  private static getDescentConstraintMinimumAltitude(constraint: AltitudeConstraint): Feet | undefined {
+    switch (constraint.altitudeDescriptor) {
+      case '@':
+      case '+':
+      case 'I':
+      case 'J':
+      case 'V':
+      case 'X':
+        return Math.round(constraint.altitude1);
+      case 'B':
+        return constraint.altitude2 !== undefined ? Math.round(constraint.altitude2) : undefined;
+      default:
+        return undefined;
+    }
   }
 
   get expediteProfile(): BaseGeometryProfile | undefined {
