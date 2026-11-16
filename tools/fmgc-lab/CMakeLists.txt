@@ -192,6 +192,16 @@ foreach(variant ${MODEL_VARIANTS})
   target_compile_options(fcu-replay-${name} PRIVATE -O2 -ffp-contract=off)
   target_link_libraries(fcu-replay-${name} PRIVATE fcu_model_${name} ZLIB::ZLIB -static)
 
+  add_custom_command(
+    OUTPUT ${gen_dir}/fcu_params.gen.h
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${gen_dir}
+    COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_params.py ${gen_dir}/fcu_params.gen.h
+            FcuComputer=${dir}/FcuComputer.h
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_params.py ${dir}/FcuComputer.h)
+  add_executable(fcu-dump-params-${name} src/dump_fcu_params.cpp ${gen_dir}/fcu_params.gen.h)
+  target_include_directories(fcu-dump-params-${name} PRIVATE ${gen_dir} ${WASM_SRC})
+  target_link_libraries(fcu-dump-params-${name} PRIVATE fcu_model_${name} -static)
+
   add_executable(fcu-synth-fdr-${name} src/fcu_synth_fdr.cpp)
   target_include_directories(fcu-synth-fdr-${name} PRIVATE ${WASM_SRC} src)
   target_compile_options(fcu-synth-fdr-${name} PRIVATE -O2 -ffp-contract=off)

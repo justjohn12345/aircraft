@@ -48,7 +48,7 @@ def emit_model(model, var, mems):
             fmt, cast = PRINT[type_]
         else:
             # enums (fmgc_flight_phase, ...) and SignStatusMatrix print as int; struct defaults are skipped
-            if type_[0].islower() and type_ not in ('ap_raw_output', 'fmgc_outputs') and not type_.startswith('base_'):
+            if type_[0].islower() and type_ not in ('ap_raw_output', 'fmgc_outputs', 'fcu_outputs') and not type_.startswith('base_'):
                 fmt, cast = '%d', 'static_cast<int>({})'
             else:
                 lines.append(f'  std::fprintf(f, "{name} = <{type_}>\\n");')
