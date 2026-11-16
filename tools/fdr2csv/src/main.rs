@@ -89,7 +89,9 @@ fn main() -> Result<(), std::io::Error> {
         AircraftType::A320
     };
 
+    let a320_with_fcu = file_format_version == a320::INTERFACE_VERSION_FCU;
     let aircraft_interface_version = match aircraft_type {
+        AircraftType::A320 if a320_with_fcu => a320::INTERFACE_VERSION_FCU,
         AircraftType::A320 => a320::INTERFACE_VERSION,
         AircraftType::A380 => a380::INTERFACE_VERSION,
     };
@@ -138,6 +140,9 @@ fn main() -> Result<(), std::io::Error> {
 
     // Generate and write the header
     let header = match aircraft_type {
+        AircraftType::A320 if a320_with_fcu => {
+            csv_header_serializer::to_string(&a320::FdrDataFcu::default(), args.delimiter)
+        }
         AircraftType::A320 => {
             csv_header_serializer::to_string(&a320::FdrData::default(), args.delimiter)
         }
@@ -156,6 +161,18 @@ fn main() -> Result<(), std::io::Error> {
         .from_writer(buf_writer);
 
     match aircraft_type {
+        AircraftType::A320 if a320_with_fcu => {
+            while let Ok(fdr_data) = a320::read_record_fcu(&mut reader) {
+                writer.serialize(&fdr_data)?;
+
+                counter += 1;
+
+                if counter % 1000 == 0 {
+                    print!("Processed {counter} entries...\r");
+                    std::io::stdout().flush()?;
+                }
+            }
+        }
         AircraftType::A320 => {
             while let Ok(fdr_data) = a320::read_record(&mut reader) {
                 writer.serialize(&fdr_data)?;

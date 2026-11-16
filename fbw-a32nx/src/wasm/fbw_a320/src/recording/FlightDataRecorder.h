@@ -4,6 +4,7 @@
 
 #include "../elac/Elac.h"
 #include "../fac/Fac.h"
+#include "../fcu/Fcu.h"
 #include "../model/FadecComputer.h"
 #include "../model/FmgcComputer_types.h"
 #include "../sec/Sec.h"
@@ -14,7 +15,8 @@
 class FlightDataRecorder {
  public:
   // IMPORTANT: this constant needs to increased with every interface change
-  const uint64_t INTERFACE_VERSION = 3200006;
+  // 3209001: personal build, 3200006 plus the FCU model inputs and outputs at the end of each record
+  const uint64_t INTERFACE_VERSION = 3209001;
 
   const uint32_t NUMBER_OF_ELAC_TO_WRITE = 2;
   const uint32_t NUMBER_OF_SEC_TO_WRITE = 3;
@@ -30,7 +32,8 @@ class FlightDataRecorder {
               Fac (&facs)[2],
               const fmgc_outputs& fmgc1,
               const fmgc_outputs& fmgc2,
-              FadecComputer (&fadecs)[2]);
+              FadecComputer (&fadecs)[2],
+              const Fcu& fcu);
 
   void terminate();
 
@@ -69,4 +72,6 @@ class FlightDataRecorder {
   void writeFmgc(const fmgc_outputs& fmgc);
 
   void writeFadec(FadecComputer& fadec);
+
+  void writeFcu(const Fcu& fcu);
 };

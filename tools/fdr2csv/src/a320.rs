@@ -6,7 +6,7 @@ use crate::{
         base_fmgc_bus_inputs, base_fmgc_bus_outputs, base_fmgc_discrete_inputs,
         base_fmgc_discrete_outputs, base_fmgc_logic_outputs, base_fms_inputs,
         base_sec_analog_outputs, base_sec_discrete_outputs, base_sec_out_bus, AircraftSpecificData,
-        BaseData,
+        BaseData, base_fcu_bus, base_fcu_discrete_outputs, base_fcu_logic_outputs, fcu_inputs,
     },
     read_bytes,
 };
@@ -14,6 +14,8 @@ use serde::Serialize;
 use std::io::{prelude::*, Error};
 
 pub const INTERFACE_VERSION: u64 = 3200006;
+// Personal build: INTERFACE_VERSION plus the FCU model inputs and outputs at the end of each record
+pub const INTERFACE_VERSION_FCU: u64 = 3209001;
 
 // A single FDR record
 #[derive(Serialize, Default)]
@@ -29,6 +31,31 @@ pub struct FdrData {
     fac_2: FacData,
     fmgc_1: FmgcData,
     fadec_1: FadecData,
+}
+
+// A single FDR record of INTERFACE_VERSION_FCU
+#[derive(Serialize, Default)]
+pub struct FdrDataFcu {
+    base: BaseData,
+    specific: AircraftSpecificData,
+    elac_1: ElacData,
+    elac_2: ElacData,
+    sec_1: SecData,
+    sec_2: SecData,
+    sec_3: SecData,
+    fac_1: FacData,
+    fac_2: FacData,
+    fmgc_1: FmgcData,
+    fadec_1: FadecData,
+    fcu: FcuData,
+}
+
+#[derive(Serialize, Default)]
+struct FcuData {
+    inputs: fcu_inputs,
+    logic: base_fcu_logic_outputs,
+    discrete_outputs: base_fcu_discrete_outputs,
+    bus_outputs: base_fcu_bus,
 }
 
 #[derive(Serialize, Default)]
@@ -85,6 +112,29 @@ pub fn read_record(reader: &mut impl Read) -> Result<FdrData, Error> {
         fac_2: read_fac(reader)?,
         fmgc_1: read_fmgc(reader)?,
         fadec_1: read_fadec(reader)?,
+    })
+}
+
+pub fn read_record_fcu(reader: &mut impl Read) -> Result<FdrDataFcu, Error> {
+    let r = read_record(reader)?;
+    Ok(FdrDataFcu {
+        base: r.base,
+        specific: r.specific,
+        elac_1: r.elac_1,
+        elac_2: r.elac_2,
+        sec_1: r.sec_1,
+        sec_2: r.sec_2,
+        sec_3: r.sec_3,
+        fac_1: r.fac_1,
+        fac_2: r.fac_2,
+        fmgc_1: r.fmgc_1,
+        fadec_1: r.fadec_1,
+        fcu: FcuData {
+            inputs: read_bytes::<fcu_inputs>(reader)?,
+            logic: read_bytes::<base_fcu_logic_outputs>(reader)?,
+            discrete_outputs: read_bytes::<base_fcu_discrete_outputs>(reader)?,
+            bus_outputs: read_bytes::<base_fcu_bus>(reader)?,
+        },
     })
 }
 

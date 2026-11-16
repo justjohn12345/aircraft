@@ -33,7 +33,8 @@ void FlightDataRecorder::update(const BaseData& baseData,
                                 Fac (&facs)[2],
                                 const fmgc_outputs& fmgc1,
                                 const fmgc_outputs& fmgc2,
-                                FadecComputer (&fadecs)[2]) {
+                                FadecComputer (&fadecs)[2],
+                                const Fcu& fcu) {
   // check if enabled
   if (!idIsEnabled->get()) {
     return;
@@ -70,6 +71,9 @@ void FlightDataRecorder::update(const BaseData& baseData,
   for (int i = 0; i < NUMBER_OF_FADEC_TO_WRITE; ++i) {
     writeFadec(fadecs[i]);
   }
+
+  // write FCU data
+  writeFcu(fcu);
 
   recordsInCurrentFile++;
   totalRecords++;
@@ -118,6 +122,16 @@ void FlightDataRecorder::writeFadec(FadecComputer& fadec) {
   auto outputs = fadec.getExternalOutputs().out;
   fileStream->write((char*)(&outputs.fadec_bus_output), sizeof(outputs.fadec_bus_output));
   fileStream->write((char*)(&outputs.output), sizeof(outputs.output));
+}
+
+void FlightDataRecorder::writeFcu(const Fcu& fcu) {
+  // the model inputs as given to the last step (after the wrapper's changes) and the model outputs except `data`, which
+  // repeats the inputs
+  fileStream->write((char*)(&fcu.modelInputs.in), sizeof(fcu.modelInputs.in));
+  const fcu_outputs& out = fcu.getModelOutputs();
+  fileStream->write((char*)(&out.logic), sizeof(out.logic));
+  fileStream->write((char*)(&out.discrete_outputs), sizeof(out.discrete_outputs));
+  fileStream->write((char*)(&out.bus_outputs), sizeof(out.bus_outputs));
 }
 
 void FlightDataRecorder::terminate() {
