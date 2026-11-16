@@ -153,7 +153,17 @@ export interface GeographicCruiseStep {
 }
 
 export class NavGeometryProfile extends BaseGeometryProfile {
+  private static readonly noMaxAltitudeConstraints: readonly MaxAltitudeConstraint[] = [];
+
+  private static readonly noDescentAltitudeConstraints: readonly DescentAltitudeConstraint[] = [];
+
   public waypointPredictions: Map<number, VerticalWaypointPrediction> = new Map();
+
+  /**
+   * Whether this profile ignores the altitude constraints, e.g. for a tactical path in a selected vertical mode.
+   * The constraints belong to the {@link ConstraintReader}, which all the profiles share, so they must not be cleared.
+   */
+  private areAltitudeConstraintsIgnored = false;
 
   readonly winds = new WindProfile(this.bus, this.flightPlanService, FlightPlanIndex.Active);
 
@@ -168,11 +178,15 @@ export class NavGeometryProfile extends BaseGeometryProfile {
   }
 
   override get maxAltitudeConstraints(): MaxAltitudeConstraint[] {
-    return this.constraintReader.climbAlitudeConstraints;
+    return this.areAltitudeConstraintsIgnored
+      ? (NavGeometryProfile.noMaxAltitudeConstraints as MaxAltitudeConstraint[])
+      : this.constraintReader.climbAlitudeConstraints;
   }
 
   override get descentAltitudeConstraints(): DescentAltitudeConstraint[] {
-    return this.constraintReader.descentAltitudeConstraints;
+    return this.areAltitudeConstraintsIgnored
+      ? (NavGeometryProfile.noDescentAltitudeConstraints as DescentAltitudeConstraint[])
+      : this.constraintReader.descentAltitudeConstraints;
   }
 
   override get maxClimbSpeedConstraints(): MaxSpeedConstraint[] {
@@ -331,8 +345,7 @@ export class NavGeometryProfile extends BaseGeometryProfile {
   }
 
   override resetAltitudeConstraints() {
-    this.constraintReader.climbAlitudeConstraints = [];
-    this.constraintReader.descentAltitudeConstraints = [];
+    this.areAltitudeConstraintsIgnored = true;
   }
 
   override resetSpeedConstraints() {
