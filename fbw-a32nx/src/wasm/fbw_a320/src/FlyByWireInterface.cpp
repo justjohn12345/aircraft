@@ -216,7 +216,7 @@ bool FlyByWireInterface::update(double sampleTime) {
   if (!simConnectInterface.isSimInActivePause()) {
     // update flight data recorder
     flightDataRecorder.update(baseData, aircraftSpecificData, elacs, secs, facs, fmgcs[0].getDebugOutputs(), fmgcs[1].getDebugOutputs(),
-                              fadecs);
+                              fadecs, fcu);
   }
 
   // FMGC shadow mode: log new mismatches with this frame's recording, update the mismatch counters

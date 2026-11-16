@@ -11,6 +11,9 @@ class Fcu {
 
   base_fcu_discrete_outputs getDiscreteOutputs();
 
+  // The FCU model's own outputs of the last step, before the wrapper adds its monitoring (flight data recorder)
+  const fcu_outputs& getModelOutputs() const { return fcuComputer.getExternalOutputs().out; }
+
   FcuComputer::ExternalInputs_FcuComputer_T modelInputs = {};
 
  private:
