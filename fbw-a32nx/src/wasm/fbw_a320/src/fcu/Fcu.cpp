@@ -36,9 +36,9 @@ void Fcu::update(double deltaTime,
 }
 
 void Fcu::maskSpdMachValueChange(double deltaTime) {
-  // In managed speed the model's SPD/MACH memory follows the current speed/Mach target (rounded to 1 kt / 0.01), and the
-  // "SPD/MACH value changed" bit (word 1 bit 15) pulses whenever that rounded value moves, e.g. when the cruise Mach
-  // drifts across 0.xx5. The FMGC takes the bit as a pilot speed change and drops the ALT soft mode (FCOM
+  // While the SPD/MACH window is dashed, the model's SPD/MACH memory follows the actual CAS/Mach from the FMGC bus (rounded
+  // to 1 kt / 0.01), and the "SPD/MACH value changed" bit (word 1 bit 15) pulses whenever that rounded value moves, e.g.
+  // when the cruise Mach drifts across 0.xx5. The FMGC takes the bit as a pilot speed change and drops the ALT soft mode (FCOM
   // DSC-22_30-70-70), so the A/THR goes back to full gain. Only pass the bit in managed speed when the pilot used the
   // SPD/MACH controls (or set a value from the sim) during the pulse.
   const auto& afs = modelInputs.in.discrete_inputs.afs_inputs;
