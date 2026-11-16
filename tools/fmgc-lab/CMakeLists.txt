@@ -280,3 +280,8 @@ if(FMGC_FUZZ)
   fuzz_tool(fmgc-fuzz-bank src/fuzz_bank.cpp)
   target_link_libraries(fmgc-fuzz-bank PRIVATE fmgc_readable_${fuzz_name} fmgc_model_${fuzz_name} ZLIB::ZLIB -static)
 endif()
+
+# Round trip of the personal FDR format with the FCU (3209001): writes a synthetic file and reads it back.
+add_executable(fdr-fcu-roundtrip src/fdr_fcu_roundtrip.cpp)
+target_include_directories(fdr-fcu-roundtrip PRIVATE ${WASM_SRC}/model ${WASM_SRC} src)
+target_link_libraries(fdr-fcu-roundtrip PRIVATE ZLIB::ZLIB -static)

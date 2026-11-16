@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: GPL-3.0
 
 // Reader for A32NX flight data recorder files (.fdr): a gzip stream holding the interface version (uint64) followed
-// by one record per frame, written by FlightDataRecorder::update(). The layout must match the recorder of the
-// interface version below.
+// by one record per frame, written by FlightDataRecorder::update(). The layout must match the recorder of one of the
+// interface versions below: 3200006 (stock) or 3209001 (personal build: 3200006 plus the FCU at the end of the record).
 
 #pragma once
 
@@ -15,11 +15,13 @@
 #include "ElacComputer_types.h"
 #include "FacComputer_types.h"
 #include "FadecComputer_types.h"
+#include "FcuComputer_types.h"
 #include "FmgcComputer_types.h"
 #include "SecComputer_types.h"
 #include "recording/RecordingDataTypes.h"
 
 constexpr uint64_t FDR_INTERFACE_VERSION = 3200006;
+constexpr uint64_t FDR_INTERFACE_VERSION_FCU = 3209001;
 
 struct ElacRecord {
   base_elac_out_bus bus_outputs;
@@ -57,6 +59,14 @@ struct FadecRecord {
   athr_output outputs;
 };
 
+/** The FCU part of a 3209001 record: the model inputs of its last step, and its outputs except `data`. */
+struct FcuRecord {
+  fcu_inputs inputs;
+  base_fcu_logic_outputs logic;
+  base_fcu_discrete_outputs discrete_outputs;
+  base_fcu_bus bus_outputs;
+};
+
 struct FdrFrame {
   BaseData base;
   AircraftSpecificData specific;
@@ -65,6 +75,8 @@ struct FdrFrame {
   FacRecord fac[2];
   FmgcRecord fmgc1;
   FadecRecord fadec[1];
+  bool hasFcu;  // 3209001 only
+  FcuRecord fcu;
 };
 
 class FdrReader {
@@ -78,7 +90,7 @@ class FdrReader {
     gzbuffer(file_, 1 << 20);
     if (!readRaw(&version_, sizeof(version_))) {
       error_ = "cannot read interface version";
-    } else if (version_ != FDR_INTERFACE_VERSION) {
+    } else if (version_ != FDR_INTERFACE_VERSION && version_ != FDR_INTERFACE_VERSION_FCU) {
       error_ = "unsupported interface version " + std::to_string(version_);
     }
   }
@@ -95,13 +107,14 @@ class FdrReader {
   bool ok() const { return error_.empty(); }
   const std::string& error() const { return error_; }
   uint64_t version() const { return version_; }
+  bool hasFcu() const { return version_ == FDR_INTERFACE_VERSION_FCU; }
 
   /** Reads the next frame; false at the end of the file (a truncated last frame is ignored). */
   bool next(FdrFrame& frame) {
     return readField(frame.base) && readField(frame.specific) && readElac(frame.elac[0]) && readElac(frame.elac[1]) &&
            readSec(frame.sec[0]) && readSec(frame.sec[1]) && readSec(frame.sec[2]) && readFac(frame.fac[0]) &&
            readFac(frame.fac[1]) && readFmgc(frame.fmgc1) && readField(frame.fadec[0].bus_outputs) &&
-           readField(frame.fadec[0].outputs);
+           readField(frame.fadec[0].outputs) && readFcu(frame);
   }
 
  private:
@@ -120,6 +133,15 @@ class FdrReader {
   bool readElac(ElacRecord& r) { return readField(r.bus_outputs) && readField(r.discrete_outputs) && readField(r.analog_outputs); }
   bool readSec(SecRecord& r) { return readField(r.bus_outputs) && readField(r.discrete_outputs) && readField(r.analog_outputs); }
   bool readFac(FacRecord& r) { return readField(r.bus_outputs) && readField(r.discrete_outputs) && readField(r.analog_outputs); }
+
+  bool readFcu(FdrFrame& frame) {
+    frame.hasFcu = hasFcu();
+    if (!frame.hasFcu) {
+      return true;
+    }
+    FcuRecord& r = frame.fcu;
+    return readField(r.inputs) && readField(r.logic) && readField(r.discrete_outputs) && readField(r.bus_outputs);
+  }
 
   bool readFmgc(FmgcRecord& r) {
     return readField(r.logic) && readField(r.ap_fd_logic) && readField(r.ap_fd_outer_loops) && readField(r.athr) &&
