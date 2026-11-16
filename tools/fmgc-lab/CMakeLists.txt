@@ -74,6 +74,11 @@ foreach(variant ${MODEL_VARIANTS})
   target_compile_options(fmgc-probe-alt-jump-${name} PRIVATE -O2 -ffp-contract=off)
   target_link_libraries(fmgc-probe-alt-jump-${name} PRIVATE fmgc_model_${name} ZLIB::ZLIB -static)
 
+  add_executable(fmgc-probe-soft-mode-${name} src/probe_soft_mode.cpp)
+  target_include_directories(fmgc-probe-soft-mode-${name} PRIVATE ${WASM_SRC} src)
+  target_compile_options(fmgc-probe-soft-mode-${name} PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(fmgc-probe-soft-mode-${name} PRIVATE fmgc_model_${name} ZLIB::ZLIB -static)
+
   add_executable(fmgc-probe-alt-capture-${name} src/probe_alt_capture.cpp)
   target_include_directories(fmgc-probe-alt-capture-${name} PRIVATE ${WASM_SRC} src)
   target_compile_options(fmgc-probe-alt-capture-${name} PRIVATE -O2 -ffp-contract=off)
