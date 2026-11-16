@@ -69,6 +69,18 @@ export class VnavDriver implements GuidanceComponent {
   private oldLegs: Map<number, Leg> = new Map();
 
   /**
+   * Change in the path length to the destination, ahead of the active leg, above which the descent profile is
+   * recomputed in the descent and approach phases.
+   */
+  private static readonly DESCENT_PROFILE_PATH_CHANGE_TOLERANCE: NauticalMiles = 0.5;
+
+  /** The active leg when the descent profile was last computed, or after a later sequencing. */
+  private descentProfileReferenceLeg: FlightPlanLeg | null = null;
+
+  /** The distance from the end of {@link descentProfileReferenceLeg} to the destination, used by the descent profile. */
+  private descentProfileReferenceDistanceToEnd: NauticalMiles = 0;
+
+  /**
    * To check
    */
   private requestDescentProfileRecomputation: boolean = false;
@@ -175,6 +187,7 @@ export class VnavDriver implements GuidanceComponent {
       this.previousManagedDescentSpeedTarget = newParameters.managedDescentSpeed;
 
       this.profileManager.computeDescentPath();
+      this.updateDescentProfileReference();
 
       // TODO: This doesn't really do much, the profile is automatically updated by reference.
       this.descentGuidance.updateProfile(this.profileManager.descentProfile);
@@ -211,6 +224,7 @@ export class VnavDriver implements GuidanceComponent {
       this.decelPoint = null;
       this.lastParameters = null;
       this.oldLegs.clear();
+      this.descentProfileReferenceLeg = null;
       this.guidanceController.pseudoWaypoints.acceptVerticalProfile();
       this.previousManagedDescentSpeedTarget = undefined;
 
@@ -528,6 +542,7 @@ export class VnavDriver implements GuidanceComponent {
       newParameters.flightPhase < FmgcFlightPhase.Descent ||
       newParameters.flightPhase > FmgcFlightPhase.Approach ||
       (!this.flightPlanService.hasTemporary && this.didLegsChange(this.oldLegs, newLegs)) ||
+      this.hasPathToDestinationChanged() ||
       numberOrNanChanged(this.lastParameters.cruiseAltitude, newParameters.cruiseAltitude) ||
       numberOrNanChanged(this.lastParameters.managedDescentSpeed, newParameters.managedDescentSpeed) ||
       numberOrNanChanged(this.lastParameters.managedDescentSpeedMach, newParameters.managedDescentSpeedMach) ||
@@ -538,6 +553,53 @@ export class VnavDriver implements GuidanceComponent {
         this.lastParameters.descentSpeedLimit?.underAltitude,
         newParameters.descentSpeedLimit?.underAltitude,
       )
+    );
+  }
+
+  /** Remembers the path length to the destination that the descent profile was computed with. */
+  private updateDescentProfileReference(): void {
+    const plan = this.flightPlanService.active;
+    const activeLeg = plan.maybeElementAt(plan.activeLegIndex);
+
+    if (activeLeg?.isDiscontinuity === false && activeLeg.calculated) {
+      this.descentProfileReferenceLeg = activeLeg;
+      this.descentProfileReferenceDistanceToEnd = activeLeg.calculated.cumulativeDistanceToEndWithTransitions;
+    } else {
+      this.descentProfileReferenceLeg = null;
+    }
+  }
+
+  /**
+   * Whether the path from the active leg to the destination has changed length since the descent profile was computed.
+   *
+   * The aircraft position on the descent profile is the profile length minus the present distance to the destination,
+   * so the profile must describe the same path as the lateral geometry. In the descent and approach phases the profile is
+   * otherwise only recomputed when the legs change, but the geometry of new legs (e.g. after a DIR TO) is first computed
+   * with the present speed for every turn, and only gets its final length once the leg speed predictions exist. A
+   * profile computed in between puts the aircraft too far along it, e.g. past its end.
+   * @returns true if the descent profile must be recomputed
+   */
+  private hasPathToDestinationChanged(): boolean {
+    const plan = this.flightPlanService.active;
+    const activeLeg = plan.maybeElementAt(plan.activeLegIndex);
+
+    if (activeLeg?.isDiscontinuity !== false || !activeLeg.calculated) {
+      return false;
+    }
+
+    const distanceToEnd = activeLeg.calculated.cumulativeDistanceToEndWithTransitions;
+
+    if (activeLeg !== this.descentProfileReferenceLeg) {
+      // Sequencing does not change the path ahead, so the new active leg becomes the reference
+      this.descentProfileReferenceLeg = activeLeg;
+      this.descentProfileReferenceDistanceToEnd = distanceToEnd;
+
+      return false;
+    }
+
+    return (
+      Math.abs(distanceToEnd - this.descentProfileReferenceDistanceToEnd) >
+      VnavDriver.DESCENT_PROFILE_PATH_CHANGE_TOLERANCE
     );
   }
 
