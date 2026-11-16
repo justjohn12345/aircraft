@@ -65,6 +65,12 @@ export class ConstraintReader {
   /** Whether the selected approach is flown with APP NAV / FINAL instead of LOC / G/S. */
   public isFinalAppApproachSelected = false;
 
+  /** Distance from the start of the flight plan to the first fix of the approach (or approach via), or null. */
+  public approachStartDistanceFromStart: NauticalMiles | null = null;
+
+  /** Distance from the start of the flight plan to the FDP, in the same frame as the constraint distances, or null. */
+  public finalDescentPointDistanceFromStart: NauticalMiles | null = null;
+
   constructor(
     private flightPlanService: FlightPlanService,
     private guidanceController: GuidanceController,
@@ -80,6 +86,7 @@ export class ConstraintReader {
 
     const plan = this.flightPlanService.active;
     const finalApproachLegs: FinalApproachLegInfo[] = [];
+    const finalApproachLegDistancesFromStart: NauticalMiles[] = [];
 
     for (let i = 0; i < plan.firstMissedApproachLegIndex; i++) {
       const leg = plan.elementAt(i);
@@ -90,6 +97,14 @@ export class ConstraintReader {
 
       const legDistanceToEnd = leg.calculated?.cumulativeDistanceToEndWithTransitions ?? this.totalFlightPlanDistance;
       const legDistanceFromStart = leg.calculated?.cumulativeDistanceWithTransitions ?? 0;
+
+      if (
+        this.approachStartDistanceFromStart === null &&
+        leg.calculated &&
+        (leg.segment === plan.approachViaSegment || leg.segment === plan.approachSegment)
+      ) {
+        this.approachStartDistanceFromStart = legDistanceFromStart;
+      }
 
       if (leg.cruiseStep && !leg.cruiseStep.isIgnored) {
         if (i >= plan.activeLegIndex) {
@@ -171,10 +186,16 @@ export class ConstraintReader {
 
       if (plan.destinationLegIndex !== null && i <= plan.destinationLegIndex) {
         finalApproachLegs.push({ verticalAngle: leg.definition.verticalAngle, distanceToEnd: legDistanceToEnd });
+        finalApproachLegDistancesFromStart.push(legDistanceFromStart);
       }
     }
 
     this.finalDescentPointDistanceToEnd = findFinalDescentPointDistanceToEnd(finalApproachLegs);
+    const fdpLegIndex = finalApproachLegs.findIndex((leg) => leg.distanceToEnd === this.finalDescentPointDistanceToEnd);
+    this.finalDescentPointDistanceFromStart =
+      this.finalDescentPointDistanceToEnd !== null && fdpLegIndex >= 0
+        ? finalApproachLegDistancesFromStart[fdpLegIndex]
+        : null;
     this.isFinalAppApproachSelected = isFinalAppApproachType(plan.approach?.type);
 
     this.updateFinalAltitude();
@@ -235,6 +256,8 @@ export class ConstraintReader {
     this.finalAltitude = 50;
     this.finalDescentPointDistanceToEnd = null;
     this.isFinalAppApproachSelected = false;
+    this.approachStartDistanceFromStart = null;
+    this.finalDescentPointDistanceFromStart = null;
   }
 
   private updateDistancesToEnd() {
