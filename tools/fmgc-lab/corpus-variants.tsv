@@ -15,3 +15,4 @@
 # 2026-11-15 ~20:50: test/shadow-fixes 01002365b installed (adds FCU soft mode fix C13; FMGC model stock, shadow on) -> replay with "stock" (FCU change is upstream of the recorded FMGC inputs)
 # 2026-11-15 ~21:02: test/shadow-fixes b5f6d1664 installed (adds FDR FCU recording, interface 3209001) -> replay with "stock"; FCU replays from the recorded FCU inputs
 # 2026-11-16-15-22-40 (KSJC-KLAS, test/shadow-fixes b5f6d1664, first 3209001 file): fcu-replay 0 mismatches over 290860 frames; fcu-check 0 mismatches; findings C14, F23
+# 2026-11-16 ~13:05: test/shadow-fixes 0dc78a98c installed (adds fix/vnav-c14 VNAV fixes and personal/fdr-vnav: FDR interface 3209002 = 3209001 + FMS VNAV state, L:A32NX_FDR_VNAV_*) -> replay with "stock"; vnav-lab can compare against the recorded fms_vnav
