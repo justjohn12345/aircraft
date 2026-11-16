@@ -12,3 +12,4 @@
 # 2026-11-15 ~10:45: test/shadow 6a0e92c24 installed (origin/master + FMGC shadow mode + SPD/MACH fix; FMGC model stock; ModelConfiguration.ini [FMGC] SHADOW_ENABLED=true) -> replay with "stock"; shadow logs <fdr>.fmgc-shadow.log in work/
 # 2026-11-15 ~13:10: 2026-11-15-18-40-33 recorded on test/shadow 6a0e92c24 -> replay with "stock"; shadow log in ~/fdr-corpus/raw
 # 2026-11-15 ~20:22: test/shadow-fixes 98c47e189 installed (test/shadow + non-FMGC FMS fixes: LNAV CA sequencing, descent constraint level-off, FINAL APP + smooth path; FMGC model stock, shadow on) -> replay with "stock"
+# 2026-11-15 ~20:50: test/shadow-fixes 01002365b installed (adds FCU soft mode fix C13; FMGC model stock, shadow on) -> replay with "stock" (FCU change is upstream of the recorded FMGC inputs)
