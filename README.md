@@ -31,7 +31,9 @@ runways of at least 1800 m are counted.
 | KLAS Las Vegas | 2114.1 | ILS 26L Y/Z, LOC 26L Y/Z, RNAV 26L (2108); ILS 26R Y/Z, LOC 26R Y/Z, RNAV 26R (2104) |
 | EDDS Stuttgart | 1260.6 | ILS 25 (1239), RNAV 25 (1231) |
 
-All other approaches at these two airports have their MAP above the airport elevation and are not affected.
+Both confirmed in flight on the stock Development build: the T/D disappeared after entering the PERF APPR wind
+with the ILS 26L at KLAS and the ILS 25 at EDDS. All other approaches at these two airports have their MAP above the
+airport elevation and are not affected.
 
 Flat runway ends whose approaches all have the MAP above the airport elevation (not affected), checked in flight at
 KSFO with the stock build:
