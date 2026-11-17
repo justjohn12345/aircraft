@@ -2519,7 +2519,11 @@ void FmgcComputer::step()
     FmgcComputer_MATLABFunction_i(&FmgcComputer_U.in.bus_inputs.tcas_bus.vertical_resolution_advisory,
       FmgcComputer_P.BitfromLabel7_bit_j, &rtb_DataTypeConversion1_d);
     rtb_y_fi = rtb_y_n;
-    rtb_OR_b = (rtb_Compare_ji || (rtb_y_oy && rtb_NOT_b && ((rtb_y_bb >= FmgcComputer_P.CompareToConstant_const_l5) ||
+    // PERSONAL FIX (hand edit of generated code, not for upstream): ALT* engaged on the ground with an FD on whenever
+    // the FCU altitude (100 ft at power-up) was within the 80 ft minimum capture distance, which then gave V/S on the
+    // ground after an FCU altitude change. The own ALT* engagement now requires being airborne (rtb_y_hy = on ground,
+    // logic.on_ground).
+    rtb_OR_b = (rtb_Compare_ji || (rtb_y_oy && rtb_NOT_b && (!rtb_y_hy) && ((rtb_y_bb >= FmgcComputer_P.CompareToConstant_const_l5) ||
       ((!FmgcComputer_DWork.Delay_DSTATE.longitudinal_modes.pitch_goaround_active) &&
        (!FmgcComputer_DWork.Delay_DSTATE.longitudinal_modes.pitch_takeoff_active))) &&
       ((!FmgcComputer_DWork.Delay_DSTATE.longitudinal_modes.tcas_active) || ((rtb_DataTypeConversion1_d == 0U) &&
@@ -2643,6 +2647,16 @@ void FmgcComputer::step()
       FmgcComputer_P.BitfromLabel7_bit_o, &rtb_DataTypeConversion1_d);
     rtb_y_bn = (rtb_y_n || (FmgcComputer_DWork.Delay_DSTATE.active_tcas_submode ==
       FmgcComputer_P.EnumeratedConstant3_Value_ls));
+    // PERSONAL hand edit of generated code (flybywiresim/aircraft#11011, not for upstream): don't revert ALT CST* to V/S
+    // when the target changed because a constrained waypoint was sequenced with CLB or DES armed. CLB/DES engages
+    // instead (FCOM DSC-22_30-70-50). Also suppress it on the frame after CLB/DES engaged while ALT* is still latched.
+    // An FCU altitude change during ALT* still reverts to V/S.
+    const bool managedModeEngagingOnCstrSequence =
+        ((FmgcComputer_DWork.Delay_DSTATE.armed_modes.des_armed ||
+          FmgcComputer_DWork.Delay_DSTATE.armed_modes.clb_armed) &&
+         (FmgcComputer_U.in.fms_inputs.next_alt_cstr_ft != FmgcComputer_DWork.DelayInput1_DSTATE_n)) ||
+        FmgcComputer_DWork.Delay_DSTATE.longitudinal_modes.des_active ||
+        FmgcComputer_DWork.Delay_DSTATE.longitudinal_modes.clb_active;
     rtb_Compare_ji = (rtb_AND12 || rtb_Compare_ji || (FmgcComputer_DWork.Delay_DSTATE.longitudinal_modes.des_active &&
       ((FmgcComputer_P.EnumeratedConstant_Value_p == FmgcComputer_U.in.fms_inputs.fms_flight_phase) ||
        (FmgcComputer_U.in.fms_inputs.fms_flight_phase == FmgcComputer_P.EnumeratedConstant1_Value_m) ||
@@ -2652,7 +2666,8 @@ void FmgcComputer::step()
         (!FmgcComputer_DWork.Delay_DSTATE.lateral_modes.loc_trk_active)) ||
        (!FmgcComputer_U.in.fms_inputs.vertical_flight_plan_valid))) ||
                       (FmgcComputer_DWork.Delay_DSTATE.longitudinal_modes.alt_acq_active && (std::abs
-      (FmgcComputer_B.u_ly - rtb_DataTypeConversion_cm) >= FmgcComputer_P.CompareToConstant_const_om)) ||
+      (FmgcComputer_B.u_ly - rtb_DataTypeConversion_cm) >= FmgcComputer_P.CompareToConstant_const_om) &&
+       !managedModeEngagingOnCstrSequence) ||
                       ((FmgcComputer_DWork.Delay_DSTATE.longitudinal_modes.des_active ||
                         FmgcComputer_DWork.Delay_DSTATE.longitudinal_modes.exp_des_active ||
                         FmgcComputer_DWork.Delay_DSTATE.longitudinal_modes.op_des_active) && (rtb_DataTypeConversion2_m >
@@ -4246,10 +4261,14 @@ void FmgcComputer::step()
       FmgcComputer_P.BitfromLabel_bit_b2, &rtb_y_ae);
     rtb_Compare_ji = (rtb_y_ae != 0U);
     rtb_Compare_ji = (rtb_Compare_ji && rtb_BusAssignment_jmp.ap_fd_logic.fmgc_opp_mode_sync);
+    // PERSONAL hand edit of generated code (not for upstream): the A/THR THR mode condition. Exclude FINAL, in which the
+    // A/THR is in SPEED (FCOM): otherwise a VPATH THRUST request still present when FINAL engages latches THR IDLE for the
+    // whole approach, because the SPEED condition below may already be true and then has no rising edge.
     FmgcComputer_MATLABFunction_g((((rtb_BusAssignment_jmp.ap_fd_logic.active_longitudinal_law == vertical_law::SPD_MACH)
       || (rtb_BusAssignment_jmp.ap_fd_logic.active_longitudinal_law == vertical_law::SRS) ||
       ((rtb_BusAssignment_jmp.ap_fd_logic.active_longitudinal_law == vertical_law::VPATH) &&
-       (rtb_BusAssignment_jmp.data.fms_inputs.requested_des_submode == fmgc_des_submode::VPATH_THRUST))) &&
+       (rtb_BusAssignment_jmp.data.fms_inputs.requested_des_submode == fmgc_des_submode::VPATH_THRUST) &&
+       (!rtb_BusAssignment_jmp.ap_fd_logic.longitudinal_modes.final_des_active))) &&
       rtb_BusAssignment_jmp.logic.athr_own_engaged), FmgcComputer_P.PulseNode_isRisingEdge_o, &rtb_y_m2,
       &FmgcComputer_DWork.sf_MATLABFunction_j);
     rtb_adrOwnInvalid = !FmgcComputer_DWork.Memory_PreviousInput_hu;
