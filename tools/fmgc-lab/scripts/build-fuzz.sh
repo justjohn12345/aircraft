@@ -4,7 +4,8 @@
 # fmgc-cov-fuzz-run (static binaries, run on the host). Also builds the gcc corpus driver (build/fmgc-drive-stock)
 # in the regular gcc build dir. The stock model is extracted from master unless build/models/stock exists.
 # FCU_ONLY=1: only the FCU coverage checker (build/fcu-cov-check, see scripts/check-fcu-corpus.sh).
-# Usage: [JOBS=n] [REF=master] [FCU_ONLY=1] scripts/build-fuzz.sh
+# FADEC_ONLY=1: only the FADEC coverage checker (build/fadec-cov-check, see scripts/check-fadec-corpus.sh).
+# Usage: [JOBS=n] [REF=master] [FCU_ONLY=1 | FADEC_ONLY=1] scripts/build-fuzz.sh
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
 repo="$(cd "$here/../.." && pwd)"
@@ -13,13 +14,16 @@ if [ ! -f "$here/build/models/stock/FmgcComputer.cpp" ]; then
   "$here/scripts/extract-model.sh" "$ref" stock
 fi
 jobs=${JOBS:-4}
-targets="fmgc-fuzz fmgc-fuzz-run fmgc-fuzz-bank fmgc-cov-drive fmgc-cov-fuzz-run fcu-cov-check"
-if [ -n "${FCU_ONLY:-}" ]; then
+targets="fmgc-fuzz fmgc-fuzz-run fmgc-fuzz-bank fmgc-cov-drive fmgc-cov-fuzz-run fcu-cov-check fadec-cov-check"
+only=""
+[ -n "${FCU_ONLY:-}" ] && only=fcu-cov-check
+[ -n "${FADEC_ONLY:-}" ] && only=fadec-cov-check
+if [ -n "$only" ]; then
   cd "$repo"
   ./scripts/dev-env/run.sh bash -c "set -e; cd tools/fmgc-lab && \
     cmake -S . -B build/cmake-clang -G Ninja -DCMAKE_CXX_COMPILER=clang++ -DFMGC_FUZZ=ON \
       -DMODEL_VARIANTS='stock=/external/tools/fmgc-lab/build/models/stock' >/dev/null && \
-    cmake --build build/cmake-clang -j $jobs --target fcu-cov-check && cp build/cmake-clang/fcu-cov-check build/"
+    cmake --build build/cmake-clang -j $jobs --target $only && cp build/cmake-clang/$only build/"
   exit 0
 fi
 cd "$repo"

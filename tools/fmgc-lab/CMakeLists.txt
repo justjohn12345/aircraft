@@ -213,6 +213,57 @@ foreach(variant ${MODEL_VARIANTS})
   target_link_libraries(fcu-check-${name} PRIVATE fcu_readable_${name} fcu_model_${name} ZLIB::ZLIB -static)
 endforeach()
 
+# ---- FADEC (readable FADEC phase): the generated FadecComputer, its replay over 3209004 recordings, the readable FADEC
+# (readable/fadec/) and its differential check.
+set(READABLE_FADEC_SOURCES
+  readable/fadec/fadec.cpp readable/fadec/athr_interface.cpp readable/fadec/thrust_lever.cpp
+  readable/fadec/n1_control.cpp readable/fadec/output_packing.cpp)
+foreach(variant ${MODEL_VARIANTS})
+  string(REPLACE "=" ";" parts ${variant})
+  list(GET parts 0 name)
+  list(GET parts 1 dir)
+  set(gen_dir ${CMAKE_CURRENT_BINARY_DIR}/gen-${name})
+  add_custom_command(
+    OUTPUT ${gen_dir}/fadec_fields.gen.h
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${gen_dir}
+    COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_fields.py ${dir}/FadecComputer_types.h
+            ${gen_dir}/fadec_fields.gen.h athr_out,athr_in
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_fields.py ${dir}/FadecComputer_types.h)
+
+  add_library(fadec_model_${name} STATIC ${dir}/FadecComputer.cpp ${dir}/FadecComputer_data.cpp)
+  target_include_directories(fadec_model_${name} PUBLIC ${dir})
+  target_compile_options(fadec_model_${name} PRIVATE -O2 -ffp-contract=off)
+
+  add_library(fadec_readable_${name} STATIC ${READABLE_FADEC_SOURCES})
+  target_include_directories(fadec_readable_${name} PUBLIC ${dir} readable readable/fadec)
+  target_compile_options(fadec_readable_${name} PRIVATE -O2 -ffp-contract=off)
+
+  add_executable(fadec-replay-${name} src/fadec_replay.cpp ${gen_dir}/fadec_fields.gen.h)
+  target_include_directories(fadec-replay-${name} PRIVATE ${gen_dir} ${WASM_SRC} src)
+  target_compile_options(fadec-replay-${name} PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(fadec-replay-${name} PRIVATE fadec_model_${name} ZLIB::ZLIB -static)
+
+  add_custom_command(
+    OUTPUT ${gen_dir}/fadec_params.gen.h
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${gen_dir}
+    COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_params.py ${gen_dir}/fadec_params.gen.h
+            FadecComputer=${dir}/FadecComputer.h
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_params.py ${dir}/FadecComputer.h)
+  add_executable(fadec-dump-params-${name} src/dump_fadec_params.cpp ${gen_dir}/fadec_params.gen.h)
+  target_include_directories(fadec-dump-params-${name} PRIVATE ${gen_dir} ${WASM_SRC})
+  target_link_libraries(fadec-dump-params-${name} PRIVATE fadec_model_${name} -static)
+
+  add_executable(fadec-synth-fdr-${name} src/fadec_synth_fdr.cpp)
+  target_include_directories(fadec-synth-fdr-${name} PRIVATE ${WASM_SRC} src)
+  target_compile_options(fadec-synth-fdr-${name} PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(fadec-synth-fdr-${name} PRIVATE fadec_model_${name} ZLIB::ZLIB -static)
+
+  add_executable(fadec-check-${name} src/check_fadec.cpp ${gen_dir}/fadec_fields.gen.h)
+  target_include_directories(fadec-check-${name} PRIVATE ${gen_dir} ${WASM_SRC} src)
+  target_compile_options(fadec-check-${name} PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(fadec-check-${name} PRIVATE fadec_readable_${name} fadec_model_${name} ZLIB::ZLIB -static)
+endforeach()
+
 # Control-law checks (Phase 3): an instrumented copy of the stock model (outer-loop call hooks and probes), never the
 # repo's model/ folder. Built when a variant named "stock" exists.
 foreach(variant ${MODEL_VARIANTS})
@@ -344,6 +395,19 @@ if(FMGC_FUZZ)
   target_include_directories(fcu-cov-check PRIVATE ${fuzz_gen} ${WASM_SRC} src)
   target_compile_options(fcu-cov-check PRIVATE -O2 -ffp-contract=off)
   target_link_libraries(fcu-cov-check PRIVATE fcu_readable_cov fcu_model_cov ZLIB::ZLIB -fprofile-instr-generate -static)
+
+  # FADEC: the same for FadecComputer.cpp and the readable FADEC (scripts/check-fadec-corpus.sh with COVERAGE=1)
+  add_library(fadec_model_cov STATIC ${fuzz_dir}/FadecComputer.cpp ${fuzz_dir}/FadecComputer_data.cpp)
+  target_include_directories(fadec_model_cov PUBLIC ${fuzz_dir})
+  target_compile_options(fadec_model_cov PRIVATE -O2 -ffp-contract=off -fprofile-instr-generate -fcoverage-mapping)
+  add_library(fadec_readable_cov STATIC ${READABLE_FADEC_SOURCES})
+  target_include_directories(fadec_readable_cov PUBLIC ${fuzz_dir} readable readable/fadec)
+  target_compile_options(fadec_readable_cov PRIVATE -O2 -ffp-contract=off -fprofile-instr-generate -fcoverage-mapping)
+  add_executable(fadec-cov-check src/check_fadec.cpp ${fuzz_gen}/fadec_fields.gen.h)
+  target_include_directories(fadec-cov-check PRIVATE ${fuzz_gen} ${WASM_SRC} src)
+  target_compile_options(fadec-cov-check PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(fadec-cov-check PRIVATE fadec_readable_cov fadec_model_cov ZLIB::ZLIB -fprofile-instr-generate
+    -static)
 endif()
 
 # Round trip of the personal FDR format with the FCU (3209001): writes a synthetic file and reads it back.
