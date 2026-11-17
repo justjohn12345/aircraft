@@ -14,10 +14,12 @@ elevation of that runway end. They are exactly equal when the runways are flat i
 
 ## Results
 
-Scanned 2026-11-17 in MSFS 2024 with Navigraph navdata (AIRAC 2611 rev. 3), 215 major airline airports (busiest by
-passengers plus regional hubs). Only runways of at least 1800 m are counted.
+Scanned 2026-11-17 in MSFS 2024, 215 major airline airports (busiest by passengers plus regional hubs), once with
+Navigraph navdata (AIRAC 2611 rev. 3) and once with the default MSFS navdata. Only runways of at least 1800 m are
+counted.
 
-**12 of 212 airports are affected, 47 of 1010 runway ends (4.7 %).**
+**12 of 213 airports are affected, 47 of 1014 runway ends (4.6 %).** Both navdata gave the same runway elevations
+for every runway end, so the same airports are affected with either.
 
 | Airport | Airport elevation (ft) | Affected runway ends | Unaffected runway ends (threshold elevation, ft) |
 |---|---|---|---|
@@ -53,6 +55,6 @@ LEPA LEMG LPPT LPPR LIRF LIMC LIPZ LGAV LTFM LTFJ LTAI EPWA LKPR LHBP LROP LDZA 
 UUDD ULLI OMDB OMAA OTHH OERK OEJN OBBI OOMS LLBG OJAI FAOR FACT FALE HECA GMMN DNMM HKJK HAAB DTTA RJTT RJAA RJBB
 RJGG RJCC RJFF RKSI RKSS RCTP VHHH VMMC ZBAA ZBAD ZSPD ZSSS ZGGG ZGSZ ZUUU ZUTF ZPPP ZLXY ZHHH ZSHC WMKK WIII WADD
 VTBS VTBD VTSP VVNB VVTS RPLL VIDP VABB VOBL VOMM VOHS VECC OPKC OPLA VCBI VRMM VNKT YSSY YMML YBBN YPPH YSCB NZAA
-NZCH NZWN NFFN.
+NZCH NZWN NFFN OKKK.
 
-Not counted: EGLC and KSNA (no runway of 1800 m or more); OKKK not scanned (wrong ident in the list).
+Not counted: EGLC and KSNA (no runway of 1800 m or more).
