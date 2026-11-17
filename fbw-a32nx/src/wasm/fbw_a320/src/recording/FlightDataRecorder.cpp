@@ -82,6 +82,11 @@ void FlightDataRecorder::update(const BaseData& baseData,
   writeFcu(fcu);
   writeFmsVnav();
 
+  // write both FADECs' model inputs and outputs
+  for (int i = 0; i < 2; ++i) {
+    writeFadecModel(fadecs[i]);
+  }
+
   recordsInCurrentFile++;
   totalRecords++;
 }
@@ -155,6 +160,18 @@ void FlightDataRecorder::writeFcu(const Fcu& fcu) {
   fileStream->write((char*)(&out.logic), sizeof(out.logic));
   fileStream->write((char*)(&out.discrete_outputs), sizeof(out.discrete_outputs));
   fileStream->write((char*)(&out.bus_outputs), sizeof(out.bus_outputs));
+}
+
+void FlightDataRecorder::writeFadecModel(FadecComputer& fadec) {
+  // the model copies its inputs to out.time, data, input and fcu_input: together they are the inputs of the last step
+  const athr_out& out = fadec.getExternalOutputs().out;
+  fileStream->write((char*)(&out.time), sizeof(out.time));
+  fileStream->write((char*)(&out.data), sizeof(out.data));
+  fileStream->write((char*)(&out.input), sizeof(out.input));
+  fileStream->write((char*)(&out.fcu_input), sizeof(out.fcu_input));
+  fileStream->write((char*)(&out.data_computed), sizeof(out.data_computed));
+  fileStream->write((char*)(&out.output), sizeof(out.output));
+  fileStream->write((char*)(&out.fadec_bus_output), sizeof(out.fadec_bus_output));
 }
 
 void FlightDataRecorder::terminate() {
