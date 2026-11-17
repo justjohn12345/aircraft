@@ -186,7 +186,10 @@ bool VerticalModeLogic::updateAlt(Signal id, const Frame& f, Signals& s) {
       const auto& opp = oppBus(f).discrete_word_1;
       bool oppCapture = f.ext.oppModeSync && oppFmgcBit(opp, kOppWord1AltCaptOrHold) &&
                         oppFmgcBit(opp, kOppWord1AltCaptOrGsCapt);
-      bool set = oppCapture || (ownCompute && captureCond && srsAllows && tcasAllows(f, tcas_submode::ALT_ACQ));
+      // Fix (stock engages ALT* on the ground when the FCU altitude is within the 80 ft minimum capture distance, e.g.
+      // 100 ft at power-up, and an FCU altitude change then gives V/S on the ground): own capture only when airborne.
+      bool set = oppCapture || (ownCompute && captureCond && srsAllows && !f.ext.logic->on_ground &&
+                                tcasAllows(f, tcas_submode::ALT_ACQ));
 
       bool setRecently = alt_.captureCondRecent.update(set, f.dt, false, kOtherModeTakeoverDelayS);
       bool reset = f.ext.modeReset || (anyOtherVerticalModeLast(f.last, Signal::AltCapture) && !setRecently);
