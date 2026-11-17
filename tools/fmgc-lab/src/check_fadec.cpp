@@ -14,6 +14,8 @@
 // --warm FILE: run both over FILE first, then re-construct the generated FADECs and initialize() both (checks that the
 // readable initialize() is a complete reset).
 //
+// --trace T0 T1: one line every 0.5 s of simulation time in [T0, T1] (A/THR words, FMGC and FADEC 1 N1 commands, N1).
+//
 // Also printed: the three SR flip-flop tables against the readable formula, event counts of generated FADEC 1 (A/THR
 // control lost by cause, thrust lock, A/THR disabled), and the recorded FADEC 1 thrust lock episodes with the
 // instinctive disconnect input around them.
@@ -154,6 +156,7 @@ struct RecordedLocks {
 
 int main(int argc, char** argv) {
   long scriptSeed = -1, leverSeed = -1, athrSeed = -1, simSeed = -1;
+  double traceFrom = 1, traceTo = 0, nextTrace = 0;
   FadecInputDrive::Options opt;
   int maxListed = 40;
   std::string path, warmPath;
@@ -173,6 +176,10 @@ int main(int argc, char** argv) {
       opt.synthetic = true;
     } else if (a == "--list" && i + 1 < argc) {
       maxListed = std::atoi(argv[++i]);
+    } else if (a == "--trace" && i + 2 < argc) {
+      traceFrom = std::atof(argv[++i]);
+      traceTo = std::atof(argv[++i]);
+      nextTrace = traceFrom;
     } else if (a == "--warm" && i + 1 < argc) {
       warmPath = argv[++i];
     } else if (path.empty() && !a.empty() && a[0] != '-') {
@@ -184,7 +191,7 @@ int main(int argc, char** argv) {
   if (path.empty() || usage) {
     std::fprintf(stderr,
                  "usage: fadec-check [--synthetic] [--script SEED] [--lever SEED] [--athr SEED] [--sim SEED] "
-                 "[--warm FILE] [--list N] <file.fdr>\n");
+                 "[--warm FILE] [--trace T0 T1] [--list N] <file.fdr>\n");
     return 2;
   }
 
@@ -239,6 +246,9 @@ int main(int argc, char** argv) {
   if (athrSeed >= 0) athr = std::make_unique<S::AthrScenario>(athrSeed);
   std::unique_ptr<S::SimScenario> sim;
   if (simSeed >= 0) sim = std::make_unique<S::SimScenario>(simSeed);
+  if (sim) {
+    for (int e = 0; e < 2; e++) sim->feedback[e] = &generated[e]->FadecComputer_Y.out;
+  }
 
   std::vector<FcuLeaf> leaves[2] = {fcuLeaves<athr_out>("fadec1."), fcuLeaves<athr_out>("fadec2.")};
   std::vector<FcuLeaf> fidelityOut = fcuLeaves<athr_output>("output.");
@@ -288,6 +298,21 @@ int main(int argc, char** argv) {
 
     if (!info.gapFill && info.frame != lastRecordedFrame) {
       lastRecordedFrame = info.frame;
+      const double t = info.fdr->base.simulation_time_s;
+      if (t >= nextTrace && t <= traceTo) {
+        nextTrace = t + 0.5;
+        const athr_in& i1 = in[0];
+        const athr_out& g = generated[0]->FadecComputer_Y.out;
+        const base_arinc_429& ats = i1.fcu_input.ats_discrete_word;
+        const uint32_t w = static_cast<uint32_t>(ats.Data);
+        std::printf("trace t %.2f TLA %.2f gnd %d ATS13/14/23 %u%u%u N1cmd %u:%.2f fmgc_n1c %.2f fadec1 N1c %.2f "
+                    "(rec %.2f) N1 %.2f N1_TLA %.2f ctl %d lock %d\n",
+                    t, i1.input.TLA_deg, i1.data.on_ground, (w >> 12) & 1U, (w >> 13) & 1U, (w >> 22) & 1U,
+                    i1.fcu_input.n1_cmd_percent.SSM, i1.fcu_input.n1_cmd_percent.Data,
+                    info.fdr->fmgc1.athr.n1_c_percent, g.output.N1_c_percent, info.fdr->fadec[0].outputs.N1_c_percent,
+                    i1.data.engine_N1_percent, g.output.N1_TLA_percent, g.output.athr_control_active,
+                    g.output.memo_thrust_active);
+      }
       recordedLocks.update(*info.fdr);
       // how closely generated FADEC 1 follows the recorded FADEC 1 (synthetic drive, no injector)
       if (!info.recordedInputs && !script && !lever && !athr && !sim) {

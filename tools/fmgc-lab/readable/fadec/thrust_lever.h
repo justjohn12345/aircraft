@@ -24,7 +24,7 @@ constexpr double kTlaActiveRangeMax = 35.0;
  * FLX latch (125-134). Flex is "valid" when the FCU flex temperature word is normal and its value is above TAT.
  * On the ground FLX is active whenever flex is valid, whatever the lever. The latch is set on the ground with flex
  * valid and the lever exactly at 35 (the FLX/MCT detent), and cleared when the lever is exactly at 25 (CL) or 45
- * (TOGA); in flight only the latch counts. A lever that skips the exact detent values keeps it (finding A4).
+ * (TOGA); in flight only the latch counts. A lever that skips the exact detent values keeps it (finding E4).
  */
 class FlexSelection {
  public:
