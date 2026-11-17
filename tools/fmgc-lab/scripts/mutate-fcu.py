@@ -15,6 +15,8 @@ Mutation test of the FCU differential check: does fcu-check notice when the read
   test [JOBS]       run every mutant binary on the quick plan (3 recordings x 9 configs), then the survivors on every
                     recording; a mutant is caught when a run exits 1. Writes build/mutants/results.txt
 Usage: scripts/mutate-fcu.sh (list + build in the container + test on the host, JOBS=4)
+UNIT=fadec: the same for the readable FADEC (readable/fadec/, fadec-check-stock, build/mutants-fadec; also mutates the
+bit numbers of the ECU bus packing): scripts/mutate-fadec.sh
 """
 import json
 import os
@@ -24,8 +26,10 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SRC = os.path.join(HERE, 'readable', 'fcu')
-OUT = os.path.join(HERE, 'build', 'mutants')
+UNIT = os.environ.get('UNIT', 'fcu')
+SRC = os.path.join(HERE, 'readable', UNIT)
+OUT = os.path.join(HERE, 'build', 'mutants' if UNIT == 'fcu' else f'mutants-{UNIT}')
+TARGET = f'{UNIT}-check-stock'
 CORPUS = os.environ.get('CORPUS', os.path.expanduser('~/fdr-corpus/raw'))
 
 OPS = [
@@ -44,6 +48,7 @@ OPS = [
 ]
 NUM = re.compile(r'(?<![\w.])(\d+\.\d+)(F?)\b')
 BIT = re.compile(r'(bit\((?:[\w.]+), )(\d+)(\))')
+PACKED_BIT = re.compile(r'(\.bit\()(\d+)(,)')  # FADEC ECU bus packing
 
 
 def mutants():
@@ -57,8 +62,8 @@ def mutants():
             s = code.strip()
             if not s or s.startswith('#') or s.startswith('*') or s.startswith('/*'):
                 continue
-            if name.endswith('.h') and 'constexpr' not in code:
-                continue  # headers: only the named constants
+            if name.endswith('.h') and 'constexpr' not in code and name != 'fadec_blocks.h':
+                continue  # headers: only the named constants (and the FADEC's block library)
             for pat, rep, desc in OPS:
                 for m in re.finditer(pat, code):
                     new = line[:m.start()] + rep + line[m.end():]
@@ -68,7 +73,8 @@ def mutants():
                 nv = v * 1.5 if v != 0 else 1.0
                 new = line[:m.start()] + repr(nv) + m.group(2) + line[m.end():]
                 out.append({'file': name, 'line': i, 'old': line, 'new': new, 'desc': f'{m.group(1)}->{nv}'})
-            for m in BIT.finditer(code):
+            bits = list(BIT.finditer(code)) + (list(PACKED_BIT.finditer(code)) if UNIT == 'fadec' else [])
+            for m in bits:
                 nb = int(m.group(2)) + 1
                 new = line[:m.start(2)] + str(nb) + line[m.end(2):]
                 out.append({'file': name, 'line': i, 'old': line, 'new': new, 'desc': f'bit {m.group(2)}->{nb}'})
@@ -101,10 +107,10 @@ def cmd_build():
             try:
                 open(path, 'w').write('\n'.join(lines))
                 r = subprocess.run(['cmake', '--build', os.path.join(HERE, 'build', 'cmake'), '-j', '4', '--target',
-                                    'fcu-check-stock'], capture_output=True, text=True)
+                                    TARGET], capture_output=True, text=True)
                 binary = os.path.join(OUT, f'm{k:04d}')
                 if r.returncode == 0:
-                    subprocess.run(['cp', os.path.join(HERE, 'build', 'cmake', 'fcu-check-stock'), binary], check=True)
+                    subprocess.run(['cp', os.path.join(HERE, 'build', 'cmake', TARGET), binary], check=True)
                     log.write(f'{k} built\n')
                 else:
                     log.write(f'{k} build error\n')
@@ -112,9 +118,9 @@ def cmd_build():
                 open(path, 'w').write(original)
             log.flush()
     finally:
-        subprocess.run(['cmake', '--build', os.path.join(HERE, 'build', 'cmake'), '-j', '4', '--target',
-                        'fcu-check-stock'], capture_output=True)
-        subprocess.run(['cp', os.path.join(HERE, 'build', 'cmake', 'fcu-check-stock'), os.path.join(HERE, 'build')])
+        subprocess.run(['cmake', '--build', os.path.join(HERE, 'build', 'cmake'), '-j', '4', '--target', TARGET],
+                       capture_output=True)
+        subprocess.run(['cp', os.path.join(HERE, 'build', 'cmake', TARGET), os.path.join(HERE, 'build')])
 
 
 CONFIGS = [
@@ -124,6 +130,12 @@ CONFIGS = [
     ['--synthetic', '--fmgc2', 'swapped', '--reconstruct', '--script', '3', '--panel', '3', '--priority', '3',
      '--bus', '3', '--sim', '3', '--power', '3'],
 ]
+if UNIT == 'fadec':
+    CONFIGS = [
+        ['--synthetic'], ['--synthetic', '--script', '1'], ['--synthetic', '--lever', '1'],
+        ['--synthetic', '--athr', '1'], ['--synthetic', '--sim', '1'],
+        ['--synthetic', '--script', '2', '--lever', '2', '--athr', '2', '--sim', '2'],
+    ]
 
 
 def caught(binary, files):

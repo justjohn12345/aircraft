@@ -44,8 +44,8 @@ run() {
   while [ "$(jobs -r | wc -l)" -ge "$jobs" ]; do wait -n; done
   LLVM_PROFILE_FILE="$covdir/raw/cov-%4m.profraw" "$bin" "$@" > "$out/$name.txt" 2>&1 &
 }
-is_fcu() {  # interface version 3209001-3209003 (with the FCU)?
-  python3 -c "import gzip,struct,sys; sys.exit(0 if struct.unpack('<Q', gzip.open(sys.argv[1]).read(8))[0] in (3209001, 3209002, 3209003) else 1)" "$1"
+is_fcu() {  # interface version 3209001-3209004 (with the FCU)?
+  python3 -c "import gzip,struct,sys; sys.exit(0 if struct.unpack('<Q', gzip.open(sys.argv[1]).read(8))[0] in (3209001, 3209002, 3209003, 3209004) else 1)" "$1"
 }
 f2=(copy invalid ncd swapped opp)
 fcu_files=()

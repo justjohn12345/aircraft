@@ -15,7 +15,10 @@
 #include <string>
 #include <vector>
 
+// The field visitor: fcu_fields.gen.h unless the includer has already included another one (LEAVES_FIELDS_INCLUDED).
+#ifndef LEAVES_FIELDS_INCLUDED
 #include "fcu_fields.gen.h"
+#endif
 
 struct FcuLeaf {
   std::string name;
