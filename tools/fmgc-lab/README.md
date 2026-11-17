@@ -356,7 +356,7 @@ build/fadec-synth-fdr-stock [--script SEED] [--athr SEED] [--corrupt FRAME] in.f
 Results (2026-11-17, 29 recordings: 25 x 3200006, one each 3209001/3209002, two 3209003): `check-fadec-corpus.sh` 436
 runs, 62.9 M steps x 2 FADECs, 0 mismatches; step time generated 0.075 us, readable 0.050 us. Coverage of
 `FadecComputer.cpp`: 94.8 % of branches (182/192; the 10 missing sides are unreachable), 97.4 % of lines; readable FADEC
-100 % of branches but one unreachable side. MUTATION_SUMMARY `fadec-replay` on synthesized 3209004 files: 0 mismatches over
+100 % of branches but one unreachable side. Mutation test: 148 of 171 mutants caught, the 23 survivors equivalent (`docs/fadec.md`). `fadec-replay` on synthesized 3209004 files: 0 mismatches over
 494,560 frames; a corrupted output field is reported. No real 3209004 recording yet: when one exists,
 `build/fadec-replay-stock <file>` proves the harness reproduces the sim, and `check-fadec-corpus.sh` adds recorded-input
 runs for it automatically.

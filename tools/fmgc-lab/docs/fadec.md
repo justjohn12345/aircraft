@@ -176,26 +176,44 @@ both PulseNode previous inputs and flags: 17 memories, 34 for the pair.
   the synthetic drive from any recording (TLA, N1, on ground, engine running, disconnect input and FCU bus from the
   record; thrust limits learned from FADEC 1's recorded outputs; commanded N1 from a static plant on the throttle
   output). Seeded injectors `--script --lever --athr --sim` (src/fadec_scenarios.h).
-- Synthetic drive realism (`fidelity` lines, generated FADEC 1 vs the recorded FADEC 1, plain runs): limit type and
-  value, A/THR control active, thrust lock, reverse, sim thrust mode and every bus word except N1 ref / N1 command
-  100 %; N1_TLA 90 % (IDLE limit only known after a frame at TLA 0), N1_c 79 %, throttle 22 % (the plant is not the sim
-  engine).
+- Synthetic drive realism (`fidelity` lines: generated FADEC 1 vs the recorded FADEC 1, 29 plain runs, mean / lowest
+  file): A/THR control active, thrust lock, reverse, sim thrust mode, N1 maximum 100 %; thrust limit type and value
+  94 % / 17 % (lowest in short cold-start files with the engines off); N1 ref 99.2 % / 95.4 %;
+  N1_TLA 90 % / 66 % (the IDLE limit is only learned at TLA 0, and flight idle changes with altitude); N1_c 87.5 % /
+  70 %; throttle 20 % (the plant is not the sim engine).
 - `scripts/check-fadec-corpus.sh` (JOBS=4, SEEDS=2): 436 runs over the 29 recordings, 62.9 M steps x 2 FADECs,
-  **0 mismatches**. Mean step time: generated 0.075 us, readable 0.050 us (gcc -O2).
+  **0 mismatches**. Mean step time: generated 0.07-0.08 us, readable 0.05 us (gcc -O2).
 - Coverage (`COVERAGE=1`, clang source-based, same runs): `FadecComputer.cpp` 94.8 % of branches (182/192), 97.4 % of
   lines. The 10 branch sides never taken are unreachable: BitfromLabel's left-shift and range branches (constant bit
   numbers 13, 14, 23: 4 sides), the falling-edge branch of the PulseNode (both instances are rising: 5 sides), and
   "ATS bit 13 false" inside the A/THR command branch (implied by "engaged": 1 side). Readable FADEC: 100 % of branches
   except the same bit 13 side in `n1_control.cpp`. The functions not covered are the checker's state accessors.
-- Mutation test (`scripts/mutate-fadec.sh`, 171 mutants of `readable/fadec/`): see the result in findings section 8 and
-  below.
+- Mutation test (`scripts/mutate-fadec.sh`, 171 mutants of `readable/fadec/`): 148 caught, the 23 survivors
+  equivalent (below).
 - `fadec-replay-<variant>` against recorded outputs: no 3209004 recording exists yet; checked on synthesized files
-  (`fadec-synth-fdr`): 0 mismatches over 494,560 frames, and a single corrupted output field is reported. `--sync` is for a
-  file that starts with the FADECs running (approximate for the trim integrator and a disconnect held across the start).
+  (`fadec-synth-fdr`): 0 mismatches over 494,560 frames, and a single corrupted output field is reported. `--sync`
+  is for a file that starts with the FADECs running (approximate for the trim integrator and a held disconnect).
 
 ### Mutation test
 
-MUTATION_RESULTS
+`scripts/mutate-fadec.sh` (`scripts/mutate-fcu.py` with `UNIT=fadec`): 171 mutants of `readable/fadec/` (&& <-> ||,
+! dropped, == <-> !=, < <-> <=, > <-> >=, true <-> false, += -> -=, every numeric literal x1.5 (0 -> 1), every ARINC bit
+number +1, including the ECU bus packing; `fadec_blocks.h` included). 148 caught. The first run left 27; 4 were
+killed by scenarios added for them: N1 actual exactly 0.8 % from N1_c (trim reset `>` vs `>=`), TAT equal to the flex
+temperature, limits far apart at exactly 35 deg (segment end rounding), and the 15 s hold reached exactly (simulation
+time in 1/8 s steps). The 23 survivors are equivalent:
+
+- reset and default values that are never read (11): `engaged_` in `reset()`; TimeSinceCondition's default event time /
+  flag and `reset()` values (a reset "primed" flag is equivalent because an event time of 0 re-primes it); the
+  flip-flop's default `q` / `qbar` and `reset()` `qbar` (recomputed by every update); the integrator's default state; the
+  frozen N1's reset value and flag (the lock cannot be set on the first frame, so the first frame always loads N1);
+- a limit hit exactly gives the same value (4): the integrator limits `>=` / `<=`, the A/THR command limits `>=` / `<=`
+  (the float command equals the float-rounded limit);
+- defaults never used (2): the N1 command's A429 default (read only when the word is NO) and the flex temperature
+  default in "FLX valid" (behind the SSM test);
+- values that cannot reach the mutated test (6): `fmax(1, TLA)` in flight (0-25 deg is CLB either way), the four
+  `TLA < 0 ? REVERSE : NONE` variants (only negative or NaN TLA get there), and `TLA >= 0` for sim thrust mode 3
+  (0 returns 2 before).
 
 ### Rerun
 
