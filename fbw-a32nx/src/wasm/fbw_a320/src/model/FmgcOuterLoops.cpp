@@ -2772,15 +2772,24 @@ void FmgcOuterLoops::step(const real_T *rtu_in_time_dt, const real_T *rtu_in_tim
 
   r = static_cast<real_T>(high_i) * FmgcOuterLoops_DWork.dH_offset + rtb_Y_ds;
   if ((!FmgcOuterLoops_DWork.wasActive_a) && rtb_Compare_ck) {
-    FmgcOuterLoops_DWork.k = *rtu_in_data_H_dot_ft_min / r;
-    FmgcOuterLoops_DWork.dH_offset = std::abs(500.0 / std::abs(FmgcOuterLoops_DWork.k) - 100.0);
-    if (r < 0.0) {
-      low_i = -1;
-    } else {
-      low_i = (r > 0.0);
+    // PERSONAL FIX (ALT* creep, hand edit of generated code, not for upstream): stock computed the entry gain from r,
+    // which still holds the previous capture's dH_offset, and an entry with ~0 V/S (ALT* engaging on the ground) made
+    // the offset huge, so every later capture of the flight crawled at ~400 fpm. Compute the gain from dH alone, keep
+    // dH away from 0 and bound the offset. Identical to stock on a flight's first capture (old offset 0).
+    real_T dH_entry = rtb_Y_ds;
+    if (std::abs(dH_entry) < 1.0) {
+      dH_entry = (*rtu_in_data_H_dot_ft_min < 0.0) ? -1.0 : 1.0;
     }
 
-    r += static_cast<real_T>(low_i) * FmgcOuterLoops_DWork.dH_offset;
+    FmgcOuterLoops_DWork.k = *rtu_in_data_H_dot_ft_min / dH_entry;
+    FmgcOuterLoops_DWork.dH_offset = std::fmin(std::abs(500.0 / std::abs(FmgcOuterLoops_DWork.k) - 100.0), 10000.0);
+    if (dH_entry < 0.0) {
+      low_i = -1;
+    } else {
+      low_i = 1;
+    }
+
+    r = dH_entry + static_cast<real_T>(low_i) * FmgcOuterLoops_DWork.dH_offset;
     FmgcOuterLoops_DWork.k = *rtu_in_data_H_dot_ft_min / r;
     FmgcOuterLoops_DWork.maxH_dot = std::abs(*rtu_in_data_H_dot_ft_min);
   }
