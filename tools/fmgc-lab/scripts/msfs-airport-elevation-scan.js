@@ -7,13 +7,16 @@
 // The MSFS navdata backend (fbw-common/src/systems/navdata/client/backends/Msfs/Mapping.ts) makes the airport
 // elevation the mean of the runway elevations and the threshold elevation the runway end elevation. The PERF APPR wind
 // is entered at the airport elevation and scaled down to the destination runway threshold; when the two are exactly
-// equal the scaling is 0/0 and the descent profile goes NaN. This script loads airports the same way the backend does
-// and counts the runway ends where they are exactly equal (computed in the same float operations).
+// equal ("flat" runway end) the scaling is 0/0, and if the descent profile goes below the entry the profile goes NaN.
+// The profile ends at the approach's MAP altitude (ConstraintReader.finalAltitude), so an approach is affected when its
+// runway end is flat and its MAP altitude is below the airport elevation. Without an approach the profile ends at the
+// threshold + 50 ft, which is never affected. This script loads airports the same way the backend does and checks
+// both, with the same float operations.
 //
 // Usage: developer mode, Coherent GT debugger (port 19999), open any FBW instrument (e.g. the A32NX MCDU), paste this
 // into the console. Best on the ground or paused: loading thousands of airports stalls the instrument for a while.
 // Edit CONFIG first. Results: console summary, console.table of the affected airports, and window.fbwElevationScan
-// (.csv holds one line per checked runway end).
+// (.csv holds one line per approach, or per runway end without an approach).
 
 (async () => {
   // Major airline airports (busiest by passengers plus regional hubs), for a quick first scan.
@@ -253,6 +256,7 @@
   };
 
   const DESIGNATOR = ['', 'L', 'R', 'C', 'W', 'A', 'B'];
+  const FIX_TYPE_MAP = 4;
   const ident = (icao) => icao.substring(7).trim();
   const waiters = new Map();
   const sub = Coherent.on('SendAirport', (f) => {
@@ -303,11 +307,13 @@
   icaos = [...new Set(icaos)];
   console.log(`loading ${icaos.length} airports`);
 
-  const lines = ['airport,runway_end,airport_alt_ft,threshold_alt_ft,runway_length_m,affected'];
+  const lines = ['airport,runway_end,approach,airport_alt_ft,threshold_alt_ft,map_alt_ft,flat,affected'];
   const affectedAirports = [];
   let airportsChecked = 0;
   let endsChecked = 0;
-  let endsAffected = 0;
+  let endsFlat = 0;
+  let approachesChecked = 0;
+  let approachesAffected = 0;
   const missing = [];
 
   for (let i = 0; i < icaos.length; i += CONFIG.batchSize) {
@@ -322,40 +328,62 @@
       const elevations = ap.runways.map((r) => r.elevation / 0.3048);
       const airportAlt = elevations.reduce((a, b) => a + b, 0) / elevations.length;
 
-      const ends = [];
+      let ends = 0;
+      const flatEnds = [];
+      const hits = [];
       for (const r of ap.runways) {
         if (r.length < CONFIG.minRunwayLengthM) {
           continue;
         }
         r.designation.split('-').forEach((num, index) => {
           const primary = index === 0;
-          const char = DESIGNATOR[primary ? r.designatorCharPrimary : r.designatorCharSecondary];
+          const designator = primary ? r.designatorCharPrimary : r.designatorCharSecondary;
+          const char = DESIGNATOR[designator];
           if (char === 'W' || char === undefined) {
             return;
           }
+          const end = `${num.padStart(2, '0')}${char}`;
+          ends++;
           // Same as Mapping: thresholdLocation.alt.
           const thresholdAlt = (primary ? r.primaryElevation : r.secondaryElevation) / 0.3048;
-          const affected = thresholdAlt === airportAlt;
-          ends.push({ name: `${num.padStart(2, '0')}${char}`, affected });
-          lines.push(
-            `${ident(ap.icao)},${num.padStart(2, '0')}${char},${airportAlt},${thresholdAlt},${r.length},${affected ? 1 : 0}`,
+          const flat = thresholdAlt === airportAlt;
+          if (flat) {
+            flatEnds.push(end);
+          }
+          const approaches = (ap.approaches || []).filter(
+            (a) => a.runwayNumber === parseInt(num, 10) && a.runwayDesignator === designator,
           );
+          if (approaches.length === 0) {
+            lines.push(`${ident(ap.icao)},${end},,${airportAlt},${thresholdAlt},,${flat ? 1 : 0},0`);
+          }
+          for (const a of approaches) {
+            // Same as ConstraintReader.updateFinalAltitude: the MAP altitude, as mapped (rounded feet).
+            const mapLeg = (a.finalLegs || []).find((l) => (l.fixTypeFlags & FIX_TYPE_MAP) > 0);
+            const mapAlt = mapLeg ? Math.round(mapLeg.altitude1 / 0.3048) : NaN;
+            const affected = flat && mapAlt < airportAlt;
+            approachesChecked++;
+            if (affected) {
+              approachesAffected++;
+              hits.push(`${a.name} (MAP ${mapAlt})`);
+            }
+            lines.push(
+              `${ident(ap.icao)},${end},${a.name},${airportAlt},${thresholdAlt},${mapAlt},${flat ? 1 : 0},${affected ? 1 : 0}`,
+            );
+          }
         });
       }
-      if (ends.length === 0) {
+      if (ends === 0) {
         continue;
       }
       airportsChecked++;
-      endsChecked += ends.length;
-      const hit = ends.filter((e) => e.affected);
-      endsAffected += hit.length;
-      if (hit.length > 0) {
+      endsChecked += ends;
+      endsFlat += flatEnds.length;
+      if (hits.length > 0) {
         affectedAirports.push({
           airport: ident(ap.icao),
-          elevationFt: Math.round(airportAlt),
-          runways: ap.runways.length,
-          affectedEnds: hit.map((e) => e.name).join(' '),
-          allEnds: hit.length === ends.length,
+          elevationFt: Math.round(airportAlt * 10) / 10,
+          flatEnds: flatEnds.join(' '),
+          affectedApproaches: hits.join(', '),
         });
       }
     }
@@ -371,10 +399,11 @@
   const pct = (a, b) => (b > 0 ? ((100 * a) / b).toFixed(1) : '0');
   console.log(
     `airports with a runway >= ${CONFIG.minRunwayLengthM} m: ${airportsChecked}, affected: ${affectedAirports.length} ` +
-      `(${pct(affectedAirports.length, airportsChecked)} %); runway ends: ${endsChecked}, affected: ${endsAffected} ` +
-      `(${pct(endsAffected, endsChecked)} %); not loaded: ${missing.length}${missing.length > 0 ? ` (${missing.join(' ')})` : ''}`,
+      `(${pct(affectedAirports.length, airportsChecked)} %); runway ends: ${endsChecked}, flat: ${endsFlat}; ` +
+      `approaches: ${approachesChecked}, affected: ${approachesAffected} (${pct(approachesAffected, approachesChecked)} %); ` +
+      `not loaded: ${missing.length}${missing.length > 0 ? ` (${missing.join(' ')})` : ''}`,
   );
   console.table(affectedAirports);
   window.fbwElevationScan = { affectedAirports, csv: lines.join('\n') };
-  console.log('full results: window.fbwElevationScan (.csv per runway end)');
+  console.log('full results: window.fbwElevationScan (.csv per approach)');
 })();
