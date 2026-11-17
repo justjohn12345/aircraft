@@ -12,7 +12,7 @@
 //                 0, 12, 24, 24.5, 25, 25.5, 26, 30, 34, 35, 36, 40, 45, 47; odd limits on every other cycle); A/THR
 //                 engaged with the N1 command below idle, in range, above the lever, the lever out of the detents,
 //                 alpha floor; instinctive disconnect
-//                 short (thrust lock) and held 16 s (A/THR disabled) then reset; non-standard disconnect (ATS bit 13
+//                 short (thrust lock) and held 16 s (A/THR disabled; time in exact steps on odd cycles) then reset; non-standard disconnect (ATS bit 13
 //                 lost) in the MCT detent, lever moved inside then out of the band; ATS bit 14 and N1 command SSM lost
 //                 while in control; FLX takeoff (TAT also equal to the flex temperature) with the latch cleared at CL
 //                 and kept when the lever skips 25 deg; engine out and NaN lever on the ground and in flight;
@@ -92,6 +92,7 @@ class ScriptScenario {
     }
     run(in, t_);
     t_ += dt > 0 && std::isfinite(dt) ? dt : 0.02;
+    frame_++;
   }
 
  private:
@@ -117,8 +118,8 @@ class ScriptScenario {
         if (episodes_ % 2 == 1) {
           for (auto& i : in) {
             auto& l = i.input;
-            l.thrust_limit_CLB_percent += 3.7 * j + 0.123;
-            l.thrust_limit_MCT_percent += 2.9 * j + 0.311;
+            l.thrust_limit_CLB_percent = 100.0 * j + 0.123;  // far apart: (F - C) / 10 * 10 + C != F at 35 deg
+            l.thrust_limit_MCT_percent += -70.0 * j + 0.311;
             l.thrust_limit_FLEX_percent += 1.3 * j + 0.071;
             l.thrust_limit_TOGA_percent += 0.7 * j + 0.019;
           }
@@ -141,6 +142,8 @@ class ScriptScenario {
       case 5:  // instinctive disconnect held 16 s: A/THR disabled; reset; engage again
         both(in, 25.0, false);
         for (auto& i : in) {
+          // on odd cycles the time advances in exact 1/8 s steps, so the hold reaches exactly 15 s
+          if (episodes_ % 2 == 1) i.time.simulation_time = 1000.0 + 0.125 * frame_;
           athrBus(i, t < 1 || (t > 2 && t < 19.5) || t >= 20, true, false, kNo, 65.0);
           i.input.ATHR_disconnect = t >= 2 && t < 18.5;
           i.input.ATHR_reset_disable = t >= 19.0 && t < 19.1;
@@ -216,7 +219,7 @@ class ScriptScenario {
   Rng rng_;
   int phase_ = 0;
   double t_ = 0, jitter_ = 0;
-  long episodes_ = 0;
+  long episodes_ = 0, frame_ = 0;
 };
 
 /** Random lever episodes (--lever). */
