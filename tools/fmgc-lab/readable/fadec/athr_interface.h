@@ -52,7 +52,7 @@ class AthrInterface {
    *     disabled, or ATS bit 13 false. ATS bit 14 (A/THR active) is not part of it.
    *  4. Thrust lock (144-150): set when control active is lost (rising edge of the flip-flop's second output) with the
    *     thrust lever in the CL or FLX/MCT band; reset (wins) when the lever is outside both bands, or by control active.
-   *     Any loss of control active counts, the instinctive disconnect included (finding A1).
+   *     Any loss of control active counts, the instinctive disconnect included (finding E1).
    */
   void update(const athr_in& in, const AtsBits& bits);
 

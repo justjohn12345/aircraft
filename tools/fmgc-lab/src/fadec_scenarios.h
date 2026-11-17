@@ -9,19 +9,22 @@
 //
 //  --script SEED  a scripted tour, cycling (the seed shifts the start phase and jitters the values per cycle):
 //                 lever sweeps -20..46 deg on the ground and in flight; every detent and band edge held (-20, -6, -3,
-//                 0, 12, 24, 24.5, 25, 25.5, 26, 30, 34, 35, 36, 40, 45, 47); A/THR engaged with the N1 command below
-//                 idle, in range, above the lever, the lever out of the detents, alpha floor; instinctive disconnect
+//                 0, 12, 24, 24.5, 25, 25.5, 26, 30, 34, 35, 36, 40, 45, 47; odd limits on every other cycle); A/THR
+//                 engaged with the N1 command below idle, in range, above the lever, the lever out of the detents,
+//                 alpha floor; instinctive disconnect
 //                 short (thrust lock) and held 16 s (A/THR disabled) then reset; non-standard disconnect (ATS bit 13
 //                 lost) in the MCT detent, lever moved inside then out of the band; ATS bit 14 and N1 command SSM lost
-//                 while in control; FLX takeoff with the latch cleared at CL and kept when the lever skips 25 deg;
-//                 engine out and NaN lever on the ground and in flight; touchdown toggles and simulation time 0;
+//                 while in control; FLX takeoff (TAT also equal to the flex temperature) with the latch cleared at CL
+//                 and kept when the lever skips 25 deg; engine out and NaN lever on the ground and in flight;
+//                 touchdown toggles and simulation time 0;
 //                 invalid ATS / N1 command / flex words (SSM, huge, negative, NaN data); limit changes (negative IDLE,
 //                 REV of both signs), commanded N1 offsets saturating the throttle integrators, N1 steps (trim reset).
 //  --lever SEED   random lever episodes per engine or both: exact detents, random angles, ramps, NaN.
 //  --athr SEED    random A/THR episodes: ATS bits 13/14/23 and SSM, N1 command SSM and value, instinctive disconnect
 //                 pulses and holds (up to 20 s), reset-disable pulses, flex temperature word.
 //  --sim SEED     random sim episodes: on ground, engine operative, TAT, limits, commanded N1 offsets, N1 actual
-//                 offsets, dt (0, tiny, large), simulation time jumps and 0.
+//                 offsets, N1 actual exactly 0.8 % below the N1 command, dt (0, tiny, large), simulation time jumps
+//                 and 0.
 
 #pragma once
 
@@ -109,8 +112,17 @@ class ScriptScenario {
       case 1:  // lever sweep in flight
         both(in, -20 + 3 * t + j, false);
         break;
-      case 2:  // every detent and band edge, exactly
+      case 2:  // every detent and band edge, exactly; odd limits on odd cycles (rounding at the segment ends)
         both(in, detents[std::min(16, static_cast<int>(t))], episodes_ % 2 == 0);
+        if (episodes_ % 2 == 1) {
+          for (auto& i : in) {
+            auto& l = i.input;
+            l.thrust_limit_CLB_percent += 3.7 * j + 0.123;
+            l.thrust_limit_MCT_percent += 2.9 * j + 0.311;
+            l.thrust_limit_FLEX_percent += 1.3 * j + 0.071;
+            l.thrust_limit_TOGA_percent += 0.7 * j + 0.019;
+          }
+        }
         break;
       case 3: {  // A/THR engaged, command clamping
         both(in, t < 8 ? 25.0 : (t < 12 ? 30.0 : 10.0), false);
@@ -148,7 +160,8 @@ class ScriptScenario {
         both(in, tla[k], ground[k]);
         for (auto& i : in) {
           i.fcu_input.fcu_flex_to_temp_deg_c = {(k == 3 && episodes_ % 3 == 0) ? kNcd : kNo, 55.0F};
-          i.data.TAT_degC = (k == 1 && episodes_ % 4 == 1) ? 60.0 : 15.0;
+          // TAT above, equal to (flex not valid: strictly above is needed) or below the flex temperature
+          i.data.TAT_degC = (k == 1 && episodes_ % 4 == 1) ? 60.0 : ((k == 1 && episodes_ % 4 == 2) ? 55.0 : 15.0);
         }
         break;
       }
@@ -308,6 +321,9 @@ class SimScenario {
   explicit SimScenario(uint64_t seed) : rng_(seed * 32452843 + 7) {}
   long episodes() const { return episodes_; }
 
+  /** The computer under test's previous outputs, for the "N1 error exactly 0.8" episodes (may be null). */
+  const athr_out* feedback[2] = {nullptr, nullptr};
+
   void apply(athr_in (&in)[2], double dt) {
     const double step = dt > 0 && std::isfinite(dt) ? dt : 0.02;
     if (remaining_ <= 0) {
@@ -327,6 +343,13 @@ class SimScenario {
       if (tatOn_) i.data.TAT_degC = tat_;
       i.data.commanded_engine_N1_percent += cmdOffset_;
       i.data.engine_N1_percent += n1Offset_;
+      if (trimEdge_ && feedback[e]) {
+        // N1 actual exactly 0.8 below the previous (steady) N1 command: the trim reset threshold itself
+        const double c = feedback[e]->output.N1_c_percent;
+        double n1 = c - 0.8;
+        for (int k = 0; k < 8 && c - n1 != 0.8; k++) n1 = std::nextafter(n1, c - n1 > 0.8 ? c : -1e9);
+        i.data.engine_N1_percent = n1;
+      }
       if (limitsOn_) {
         auto& l = i.input;
         l.thrust_limit_IDLE_percent += limit_[0];
@@ -352,6 +375,7 @@ class SimScenario {
     tat_ = rng_.u(-60, 60);
     cmdOffset_ = rng_.chance(0.3) ? rng_.u(-60, 60) : 0;
     n1Offset_ = rng_.chance(0.2) ? (rng_.chance(0.05) ? kNaN : rng_.u(-10, 10)) : 0;
+    trimEdge_ = rng_.chance(0.1);
     limitsOn_ = rng_.chance(0.3);
     for (double& l : limit_) l = rng_.u(-15, 15);
     int k = rng_.irand(20);
@@ -364,7 +388,7 @@ class SimScenario {
   Rng rng_;
   double remaining_ = 0, tat_ = 0, cmdOffset_ = 0, n1Offset_ = 0, dtValue_ = 0, timeOffset_ = 0, timeJump_ = 0;
   double limit_[6]{};
-  bool groundOn_ = false, ground_ = false, tatOn_ = false, limitsOn_ = false, zeroTime_ = false;
+  bool groundOn_ = false, ground_ = false, tatOn_ = false, limitsOn_ = false, zeroTime_ = false, trimEdge_ = false;
   int engineOut_ = 0, dtKind_ = 0;
   long episodes_ = 0;
 };
