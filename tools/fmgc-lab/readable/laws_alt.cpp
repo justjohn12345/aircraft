@@ -4,7 +4,7 @@
 
 // ALT_ACQ (ALT*) and ALT_HOLD laws. Generated: FmgcOuterLoops.cpp 2754–3067 (ALT_ACQ: capture law, VLS/VMAX speed
 // protection) and 3069–3107 (ALT_HOLD); the ALT_HOLD AP command is limited at 4304. Both run every frame whatever the
-// active law. Stock behaviour, including the capture law's quirks (docs/laws/alt-capture.md).
+// active law. Branch personal/fmgc-readable-fixes: stock except the ALT* entry gain fix (= personal/fmgc-fixes).
 
 #include "laws.h"
 
@@ -39,6 +39,8 @@ constexpr double kSpeedErrorLimitDeg = 4;                // ... limited to ±4°
 // ALT* capture law
 constexpr double kCaptureArrivalVsBase = 500;     // dH_offset = |500/|k| - 100| ft
 constexpr double kCaptureArrivalVsSlope = 100;
+constexpr double kCaptureMinEntryErrorFt = 1;     // fix: entry altitude error kept at least this far from 0
+constexpr double kCaptureMaxOffsetFt = 10000;     // fix: bound on dH_offset
 constexpr double kAltAcqApGain = 0.35;            // AP gain on the capture law's FPA change
 constexpr double kSpeedProtectionApGain = 0.36;   // AP gain on the VLS / VMAX commands
 constexpr double kSpeedProtectionMarginKn = 5;    // protection active within 5 kt of VLS / VMAX
@@ -131,8 +133,7 @@ void VerticalLaws::computeAlt(const ap_laws_output& in, LawResults& out) {
   const double hDot = in.data.H_dot_ft_min;
 
   // ---- ALT_ACQ: capture law. V/S command k·(dH ± offset), limited to the entry V/S; k and the offset are chosen at
-  // law entry so the command starts at the current V/S. The previous capture's offset is still added at entry (stock
-  // quirk, see docs/laws/alt-capture.md).
+  // law entry so the command starts at the current V/S.
   bool captureActive = law == AltAcq;
   if (!alt_.captureWasActivePrimed) {
     alt_.captureWasActive = captureActive;
@@ -141,9 +142,18 @@ void VerticalLaws::computeAlt(const ap_laws_output& in, LawResults& out) {
   double altError = in.input.H_c_ft - in.data.H_ind_ft;
   double r = sign(altError) * alt_.captureOffsetFt + altError;
   if (!alt_.captureWasActive && captureActive) {
-    alt_.captureGain = hDot / r;
-    alt_.captureOffsetFt = std::abs(kCaptureArrivalVsBase / std::abs(alt_.captureGain) - kCaptureArrivalVsSlope);
-    r += sign(r) * alt_.captureOffsetFt;
+    // Fix (stock computes the entry gain from r, which still holds the previous capture's offset; an entry at ~0 V/S,
+    // e.g. ALT* on the ground, made that offset huge and every later capture crawled at ~400 fpm, see
+    // docs/laws/alt-capture.md): gain from the altitude error alone, kept away from 0, offset bounded. Same as stock on
+    // a flight's first capture.
+    double dhEntry = altError;
+    if (std::abs(dhEntry) < kCaptureMinEntryErrorFt) {
+      dhEntry = hDot < 0.0 ? -kCaptureMinEntryErrorFt : kCaptureMinEntryErrorFt;
+    }
+    alt_.captureGain = hDot / dhEntry;
+    alt_.captureOffsetFt = std::fmin(
+        std::abs(kCaptureArrivalVsBase / std::abs(alt_.captureGain) - kCaptureArrivalVsSlope), kCaptureMaxOffsetFt);
+    r = dhEntry + (dhEntry < 0.0 ? -1.0 : 1.0) * alt_.captureOffsetFt;
     alt_.captureGain = hDot / r;
     alt_.captureMaxHdot = std::abs(hDot);
   }
