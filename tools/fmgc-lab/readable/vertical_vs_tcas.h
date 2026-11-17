@@ -18,6 +18,7 @@ struct VsTcasState {
   blocks::EdgeDetector navLost;          // NAV went false
   blocks::EdgeDetector apprPushed;       // FCU APPR pushed
   double altCaptureTargetFt = 0;         // ALT* target on the frame ALT* engaged (sample and hold)
+  double previousNextCstrFt = 0;         // fix: next_alt_cstr_ft of the previous frame
 
   // V/S-FPA
   blocks::EdgeDetector vsKnobPushedOrPulled;

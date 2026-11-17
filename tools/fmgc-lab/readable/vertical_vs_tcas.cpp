@@ -97,8 +97,16 @@ bool VerticalModeLogic::updateVsTcas(Signal id, const Frame& f, Signals& s) {
                                             fms.fms_flight_phase == fmgc_flight_phase::Goaround || !lateralManaged ||
                                             !fms.vertical_flight_plan_valid);
       // ALT* target (FCU altitude or constraint) moved by 250 ft since ALT* engaged.
-      bool altCaptureTargetChanged =
-          last.alt_acq_active && std::abs(st.altCaptureTargetFt - s.altSelOrCstr) >= kAltTargetChangeFt;
+      // Fix (= personal/fg-alt-cst-reversion, findings F2): not when the FMS sequenced a constraint with CLB or DES
+      // armed (CLB/DES engages instead), nor on the frame after CLB/DES engaged. An FCU altitude change still reverts.
+      bool managedEngaging =
+          ((f.last.armed_modes.des_armed || f.last.armed_modes.clb_armed) &&
+           fms.next_alt_cstr_ft != st.previousNextCstrFt) ||
+          last.des_active || last.clb_active;
+      st.previousNextCstrFt = fms.next_alt_cstr_ft;
+      bool altCaptureTargetChanged = last.alt_acq_active &&
+                                     std::abs(st.altCaptureTargetFt - s.altSelOrCstr) >= kAltTargetChangeFt &&
+                                     !managedEngaging;
       // Descending with the FCU altitude above, or climbing with it below.
       bool wrongWay = (desFamily && fcuAboveAircraft > 0.0F) || (clbFamily && fcuAboveAircraft < 0.0F);
       // TCAS mode ends in V/S once the RA is over (or TCAS RA unavailable) in submode VS.

@@ -136,8 +136,10 @@ void Autothrust::updateModes(const Inputs& in, Result& r) {
   // or when another thrust mode (or alpha floor) was active last frame and its own set condition has not been true for
   // 0.72 s.
   const bool ownCompute = !oppSync;
+  // Fix (= personal/fg-final-athr-speed): not in FINAL, where the A/THR is in SPEED.
   const bool thrustLaw = law == Law::SPD_MACH || law == Law::SRS ||
-                         (law == Law::VPATH && in.data.fms_inputs.requested_des_submode == fmgc_des_submode::VPATH_THRUST);
+                         (law == Law::VPATH && in.data.fms_inputs.requested_des_submode == fmgc_des_submode::VPATH_THRUST &&
+                          !lm.final_des_active);
   const bool thrustLawEngaged = s.thrustLawPulse.update(thrustLaw && engaged, true);
   const bool thrustSet = (bit(oppAts, kOppAtsThrustMode) != 0 && oppSync) ||
                          (ownCompute && thrustLawEngaged && !alphaFloor);
