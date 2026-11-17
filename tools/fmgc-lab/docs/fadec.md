@@ -190,7 +190,11 @@ both PulseNode previous inputs and flags: 17 memories, 34 for the pair.
   except the same bit 13 side in `n1_control.cpp`. The functions not covered are the checker's state accessors.
 - Mutation test (`scripts/mutate-fadec.sh`, 171 mutants of `readable/fadec/`): 148 caught, the 23 survivors
   equivalent (below).
-- `fadec-replay-<variant>` against recorded outputs: no 3209004 recording exists yet; checked on synthesized files
+- First real recording (2026-11-17-21-06-05, KSJC-KLAS, 183,122 frames, one instinctive disconnect thrust lock):
+  readable vs generated 0 mismatches over 13 runs; `fadec-replay` against the recorded outputs differs only in the
+  last bit of `sim_throttle_lever_pos`, `N1_TLA_percent` and `N1_c_percent` (wasm vs native libm), every other
+  field exact.
+- `fadec-replay-<variant>` on synthesized files
   (`fadec-synth-fdr`): 0 mismatches over 494,560 frames, and a single corrupted output field is reported. `--sync`
   is for a file that starts with the FADECs running (approximate for the trim integrator and a held disconnect).
 
