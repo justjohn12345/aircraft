@@ -6,7 +6,8 @@
 # FCU_ONLY=1: only the FCU coverage checker (build/fcu-cov-check, see scripts/check-fcu-corpus.sh).
 # FADEC_ONLY=1: only the FADEC coverage checker (build/fadec-cov-check, see scripts/check-fadec-corpus.sh).
 # FAC_ONLY=1: only the FAC coverage checker (build/fac-cov-check, see scripts/check-fac-corpus.sh).
-# Usage: [JOBS=n] [REF=master] [FCU_ONLY=1 | FADEC_ONLY=1 | FAC_ONLY=1] scripts/build-fuzz.sh
+# PITCH_ONLY=1: only the EFCS pitch law coverage checker (build/efcs-pitch-law-cov-check, scripts/pitch-law-coverage.sh).
+# Usage: [JOBS=n] [REF=master] [FCU_ONLY=1 | FADEC_ONLY=1 | FAC_ONLY=1 | PITCH_ONLY=1] scripts/build-fuzz.sh
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
 repo="$(cd "$here/../.." && pwd)"
@@ -20,6 +21,7 @@ only=""
 [ -n "${FCU_ONLY:-}" ] && only=fcu-cov-check
 [ -n "${FADEC_ONLY:-}" ] && only=fadec-cov-check
 [ -n "${FAC_ONLY:-}" ] && only=fac-cov-check
+[ -n "${PITCH_ONLY:-}" ] && only=efcs-pitch-law-cov-check
 if [ -n "$only" ]; then
   cd "$repo"
   ./scripts/dev-env/run.sh bash -c "set -e; cd tools/fmgc-lab && \

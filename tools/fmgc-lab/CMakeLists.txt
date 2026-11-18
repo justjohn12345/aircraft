@@ -567,6 +567,25 @@ if(FMGC_FUZZ)
   target_include_directories(fac-cov-check PRIVATE ${fuzz_gen} ${WASM_SRC} src)
   target_compile_options(fac-cov-check PRIVATE -O2 -ffp-contract=off)
   target_link_libraries(fac-cov-check PRIVATE fac_readable_cov fac_model_cov ZLIB::ZLIB -fprofile-instr-generate -static)
+
+  # EFCS pitch laws: the same for PitchNormalLaw.cpp, PitchAlternateLaw.cpp, PitchDirectLaw.cpp and the readable pitch
+  # laws, driven by the synthetic differential check (scripts/pitch-law-coverage.sh). Lookup helpers not instrumented.
+  add_library(efcs_pitch_model_rest OBJECT ${fuzz_dir}/look1_binlxpw.cpp ${fuzz_dir}/look2_binlxpw.cpp)
+  target_include_directories(efcs_pitch_model_rest PUBLIC ${fuzz_dir})
+  target_compile_options(efcs_pitch_model_rest PRIVATE -O2 -ffp-contract=off)
+  add_library(efcs_pitch_model_cov STATIC ${fuzz_dir}/PitchNormalLaw.cpp ${fuzz_dir}/PitchAlternateLaw.cpp
+    ${fuzz_dir}/PitchDirectLaw.cpp $<TARGET_OBJECTS:efcs_pitch_model_rest>)
+  target_include_directories(efcs_pitch_model_cov PUBLIC ${fuzz_dir})
+  target_compile_options(efcs_pitch_model_cov PRIVATE -O2 -ffp-contract=off -fprofile-instr-generate -fcoverage-mapping)
+  add_library(efcs_pitch_readable_cov STATIC ${READABLE_PITCH_LAW_SOURCES})
+  target_include_directories(efcs_pitch_readable_cov PUBLIC ${fuzz_dir} readable readable/fac readable/efcs)
+  target_compile_options(efcs_pitch_readable_cov PRIVATE -O2 -ffp-contract=off -fprofile-instr-generate
+    -fcoverage-mapping)
+  add_executable(efcs-pitch-law-cov-check src/check_pitch_laws.cpp)
+  target_include_directories(efcs-pitch-law-cov-check PRIVATE ${WASM_SRC} src)
+  target_compile_options(efcs-pitch-law-cov-check PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(efcs-pitch-law-cov-check PRIVATE efcs_pitch_readable_cov efcs_pitch_model_cov
+    -fprofile-instr-generate -static)
 endif()
 
 # Round trip of the personal FDR format with the FCU (3209001): writes a synthetic file and reads it back.
