@@ -247,8 +247,13 @@ void Autothrust::updateN1(const Inputs& in, Result& r) {
   double deltaN1 = ratePercentS * kIntegratorGain;
   deltaN1 *= dt;
   // Load from the higher actual N1 while A/THR is not engaged or not active, or in alpha floor (and on the first frame).
-  s.loadIntegrator =
-      !logic.athr_own_engaged || !mode.athr_active || mode.alpha_floor_mode_active || s.loadIntegrator;
+  // Fix (personal/fg-athr-thr-reload, findings F3): also load when THR mode engages with the command below the actual
+  // N1 (wound down to the 18 % floor in SPEED at idle), so THR CLB ramps from the engines' N1, not from 18 %.
+  const bool thrEngagedBelowActual =
+      mode.thrust_mode_active && !in.last.thrust_mode_active &&
+      s.n1CommandPercent < std::fmax(fadecOpp.selected_n1_actual_percent.Data, fadecOwn.selected_n1_actual_percent.Data);
+  s.loadIntegrator = !logic.athr_own_engaged || !mode.athr_active || mode.alpha_floor_mode_active ||
+                     s.loadIntegrator || thrEngagedBelowActual;
   double integrator = s.n1CommandPercent;
   if (s.loadIntegrator) {
     integrator = static_cast<double>(std::fmax(fadecOpp.selected_n1_actual_percent.Data,
