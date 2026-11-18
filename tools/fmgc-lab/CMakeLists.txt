@@ -321,6 +321,9 @@ endforeach()
 set(READABLE_PITCH_LAW_SOURCES
   readable/efcs/pitch_normal_law.cpp readable/efcs/pitch_alternate_law.cpp readable/efcs/pitch_direct_law.cpp)
 set(READABLE_LATERAL_LAW_SOURCES readable/efcs/lateral_normal_law.cpp readable/efcs/lateral_direct_law.cpp)
+set(READABLE_ELAC_SOURCES
+  readable/elac/elac.cpp readable/elac/sensors.cpp readable/elac/engagement.cpp readable/elac/protections.cpp
+  readable/elac/orders.cpp readable/elac/output_packing.cpp)
 foreach(variant ${MODEL_VARIANTS})
   string(REPLACE "=" ";" parts ${variant})
   list(GET parts 0 name)
@@ -368,6 +371,39 @@ foreach(variant ${MODEL_VARIANTS})
   add_executable(efcs-dump-params-${name} src/dump_efcs_params.cpp ${gen_dir}/efcs_params.gen.h)
   target_include_directories(efcs-dump-params-${name} PRIVATE ${gen_dir} ${WASM_SRC})
   target_link_libraries(efcs-dump-params-${name} PRIVATE elac_model_${name} sec_model_${name} -static)
+
+  # ELAC: replay over any recording (inputs rebuilt from the record, src/efcs_drive.h)
+  add_custom_command(
+    OUTPUT ${gen_dir}/elac_fields.gen.h
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${gen_dir}
+    COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_fields.py ${dir}/ElacComputer_types.h
+            ${gen_dir}/elac_fields.gen.h elac_outputs,elac_inputs
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_fields.py ${dir}/ElacComputer_types.h)
+  add_executable(elac-replay-${name} src/elac_replay.cpp ${gen_dir}/elac_fields.gen.h)
+  target_include_directories(elac-replay-${name} PRIVATE ${gen_dir} ${WASM_SRC} src)
+  target_compile_options(elac-replay-${name} PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(elac-replay-${name} PRIVATE elac_model_${name} ZLIB::ZLIB -static)
+
+  # the readable ELAC and its differential check
+  add_library(elac_readable_${name} STATIC ${READABLE_ELAC_SOURCES})
+  target_include_directories(elac_readable_${name} PUBLIC ${dir} readable readable/fac readable/efcs readable/elac)
+  target_compile_options(elac_readable_${name} PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(elac_readable_${name} PUBLIC efcs_laws_readable_${name})
+  add_executable(elac-check-${name} src/check_elac.cpp ${gen_dir}/elac_fields.gen.h)
+  target_include_directories(elac-check-${name} PRIVATE ${gen_dir} ${WASM_SRC} src)
+  target_compile_options(elac-check-${name} PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(elac-check-${name} PRIVATE elac_readable_${name} elac_model_${name} ZLIB::ZLIB -static)
+
+  # experiment: the same replay with the generated ELAC and laws compiled with fused multiply-adds (FAC finding A1)
+  add_library(elac_model_fma_${name} STATIC ${dir}/ElacComputer.cpp ${dir}/ElacComputer_data.cpp
+    ${dir}/PitchNormalLaw.cpp ${dir}/PitchAlternateLaw.cpp ${dir}/PitchDirectLaw.cpp ${dir}/LateralNormalLaw.cpp
+    ${dir}/LateralDirectLaw.cpp ${dir}/look1_binlxpw.cpp ${dir}/look2_binlxpw.cpp)
+  target_include_directories(elac_model_fma_${name} PUBLIC ${dir})
+  target_compile_options(elac_model_fma_${name} PRIVATE -O2 -mfma -ffp-contract=fast)
+  add_executable(elac-replay-fma-${name} src/elac_replay.cpp ${gen_dir}/elac_fields.gen.h)
+  target_include_directories(elac-replay-fma-${name} PRIVATE ${gen_dir} ${WASM_SRC} src)
+  target_compile_options(elac-replay-fma-${name} PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(elac-replay-fma-${name} PRIVATE elac_model_fma_${name} ZLIB::ZLIB -static)
 endforeach()
 
 # Control-law checks (Phase 3): an instrumented copy of the stock model (outer-loop call hooks and probes), never the
