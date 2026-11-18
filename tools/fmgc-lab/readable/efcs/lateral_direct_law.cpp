@@ -2,4 +2,5 @@
 //
 // SPDX-License-Identifier: GPL-3.0
 
-// Skeleton: to be written.
+// LateralDirectLaw is header-only (lateral_direct_law.h).
+#include "lateral_direct_law.h"

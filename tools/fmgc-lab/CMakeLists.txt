@@ -347,6 +347,27 @@ foreach(variant ${MODEL_VARIANTS})
   target_compile_options(efcs-lateral-law-check-${name} PRIVATE -O2 -ffp-contract=off)
   target_link_libraries(efcs-lateral-law-check-${name} PRIVATE efcs_laws_readable_${name} efcs_laws_model_${name}
     -static)
+
+  # the generated ELAC and SEC (their laws from efcs_laws_model) and the parameter dictionary of all of them
+  add_library(elac_model_${name} STATIC ${dir}/ElacComputer.cpp ${dir}/ElacComputer_data.cpp)
+  target_include_directories(elac_model_${name} PUBLIC ${dir})
+  target_compile_options(elac_model_${name} PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(elac_model_${name} PUBLIC efcs_laws_model_${name})
+  add_library(sec_model_${name} STATIC ${dir}/SecComputer.cpp ${dir}/SecComputer_data.cpp)
+  target_include_directories(sec_model_${name} PUBLIC ${dir})
+  target_compile_options(sec_model_${name} PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(sec_model_${name} PUBLIC efcs_laws_model_${name})
+  add_custom_command(
+    OUTPUT ${gen_dir}/efcs_params.gen.h
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${gen_dir}
+    COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_params.py ${gen_dir}/efcs_params.gen.h
+            ElacComputer=${dir}/ElacComputer.h SecComputer=${dir}/SecComputer.h PitchNormalLaw=${dir}/PitchNormalLaw.h
+            PitchAlternateLaw=${dir}/PitchAlternateLaw.h PitchDirectLaw=${dir}/PitchDirectLaw.h
+            LateralNormalLaw=${dir}/LateralNormalLaw.h LateralDirectLaw=${dir}/LateralDirectLaw.h
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_params.py ${dir}/ElacComputer.h ${dir}/SecComputer.h)
+  add_executable(efcs-dump-params-${name} src/dump_efcs_params.cpp ${gen_dir}/efcs_params.gen.h)
+  target_include_directories(efcs-dump-params-${name} PRIVATE ${gen_dir} ${WASM_SRC})
+  target_link_libraries(efcs-dump-params-${name} PRIVATE elac_model_${name} sec_model_${name} -static)
 endforeach()
 
 # Control-law checks (Phase 3): an instrumented copy of the stock model (outer-loop call hooks and probes), never the

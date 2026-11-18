@@ -49,7 +49,7 @@ def emit_model(model, var, mems):
         else:
             # enums (fmgc_flight_phase, ...) and SignStatusMatrix print as int; struct defaults are skipped
             structs = ('ap_raw_output', 'fmgc_outputs', 'fcu_outputs', 'athr_output', 'athr_data_computed',
-                       'fac_outputs')
+                       'fac_outputs', 'elac_outputs', 'sec_outputs')
             if type_ == 'SignStatusMatrix' or (type_[0].islower() and type_ not in structs and
                                                not type_.startswith('base_')):
                 fmt, cast = '%d', 'static_cast<int>({})'
