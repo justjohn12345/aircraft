@@ -22,6 +22,10 @@ class Fac {
 
   FacComputer::ExternalInputs_FacComputer_T modelInputs = {};
 
+  // The model inputs of the last model step, exactly as the model saw them (recorded by the flight data recorder). A
+  // power outage over 10 ms stops the model: they then stay those of the step before the outage.
+  const FacComputer::ExternalInputs_FacComputer_T& getLastStepInputs() const { return lastStepInputs; }
+
  private:
   void initSelfTests();
 
@@ -36,6 +40,7 @@ class Fac {
   // Model
   FacComputer facComputer;
   fac_outputs modelOutputs;
+  FacComputer::ExternalInputs_FacComputer_T lastStepInputs = {};
 
   // Computer Self-monitoring vars
   bool facHealthy;

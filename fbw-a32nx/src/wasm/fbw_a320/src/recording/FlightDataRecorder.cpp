@@ -87,6 +87,9 @@ void FlightDataRecorder::update(const BaseData& baseData,
     writeFadecModel(fadecs[i]);
   }
 
+  // write the ELACs', SECs' and FACs' model inputs
+  writeFbwInputs(elacs, secs, facs);
+
   recordsInCurrentFile++;
   totalRecords++;
 }
@@ -172,6 +175,24 @@ void FlightDataRecorder::writeFadecModel(FadecComputer& fadec) {
   fileStream->write((char*)(&out.data_computed), sizeof(out.data_computed));
   fileStream->write((char*)(&out.output), sizeof(out.output));
   fileStream->write((char*)(&out.fadec_bus_output), sizeof(out.fadec_bus_output));
+}
+
+void FlightDataRecorder::writeFbwInputs(Elac (&elacs)[2], Sec (&secs)[3], Fac (&facs)[2]) {
+  // The inputs each model saw at its last step (the wrapper keeps a copy). The ELACs and SECs step every recorded frame.
+  // A FAC does not step during a power outage over 10 ms: its block then repeats the last step's, which shows as a
+  // time.monotonic_time differing from the ELACs' of the same record.
+  for (int i = 0; i < 2; ++i) {
+    const elac_inputs& in = elacs[i].getLastStepInputs().in;
+    fileStream->write((char*)(&in), sizeof(in));
+  }
+  for (int i = 0; i < 3; ++i) {
+    const sec_inputs& in = secs[i].getLastStepInputs().in;
+    fileStream->write((char*)(&in), sizeof(in));
+  }
+  for (int i = 0; i < 2; ++i) {
+    const fac_inputs& in = facs[i].getLastStepInputs().in;
+    fileStream->write((char*)(&in), sizeof(in));
+  }
 }
 
 void FlightDataRecorder::terminate() {

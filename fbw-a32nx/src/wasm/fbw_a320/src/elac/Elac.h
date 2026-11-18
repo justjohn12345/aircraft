@@ -25,6 +25,10 @@ class Elac {
 
   ElacComputer::ExternalInputs_ElacComputer_T modelInputs = {};
 
+  // The model inputs of the last model step, exactly as the model saw them (recorded by the flight data recorder). The
+  // model takes its inputs before update() sets computer_running, so its computer_running is the previous frame's.
+  const ElacComputer::ExternalInputs_ElacComputer_T& getLastStepInputs() const { return lastStepInputs; }
+
  private:
   void initSelfTests(bool viaPushButton);
 
@@ -41,6 +45,7 @@ class Elac {
   // Model
   ElacComputer elacComputer;
   elac_outputs modelOutputs;
+  ElacComputer::ExternalInputs_ElacComputer_T lastStepInputs = {};
 
   // Computer Self-monitoring vars
   bool monitoringHealthy;

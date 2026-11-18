@@ -32,6 +32,7 @@ void Sec::update(double deltaTime, double simulationTime, bool faultActive, bool
   updateSelfTest(deltaTime);
   monitorSelf(faultActive);
 
+  lastStepInputs = modelInputs;
   secComputer.setExternalInputs(&modelInputs);
   secComputer.step();
   modelOutputs = secComputer.getExternalOutputs().out;

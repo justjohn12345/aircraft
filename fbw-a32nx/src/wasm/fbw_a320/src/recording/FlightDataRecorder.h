@@ -19,7 +19,9 @@ class FlightDataRecorder {
   // 3209002: personal build, 3209001 plus the FMS VNAV state (FmsVnavData) at the end of each record
   // 3209003: personal build, 3209002 plus the descent/MCDU profile diagnostics (FmsVnavDiagData) after FmsVnavData
   // 3209004: personal build, 3209003 plus, for FADEC 1 then 2, the model inputs and outputs (writeFadecModel)
-  const uint64_t INTERFACE_VERSION = 3209004;
+  // 3209005: personal build, 3209004 plus the model inputs of the last step of ELAC 1, 2, SEC 1, 2, 3, FAC 1, 2
+  //          (elac_inputs, sec_inputs, fac_inputs; writeFbwInputs)
+  const uint64_t INTERFACE_VERSION = 3209005;
 
   const uint32_t NUMBER_OF_ELAC_TO_WRITE = 2;
   const uint32_t NUMBER_OF_SEC_TO_WRITE = 3;
@@ -79,6 +81,8 @@ class FlightDataRecorder {
   void writeFcu(const Fcu& fcu);
 
   void writeFadecModel(FadecComputer& fadec);
+
+  void writeFbwInputs(Elac (&elacs)[2], Sec (&secs)[3], Fac (&facs)[2]);
 
   void writeFmsVnav();
 
