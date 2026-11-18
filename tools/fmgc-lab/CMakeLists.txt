@@ -195,6 +195,21 @@ foreach(variant ${MODEL_VARIANTS})
     ${CMAKE_CURRENT_SOURCE_DIR})
   target_compile_options(fmgc-shadow-test-${name} PRIVATE -O2 -ffp-contract=off)
   target_link_libraries(fmgc-shadow-test-${name} PRIVATE fmgc_readable_${name} fmgc_model_${name} ZLIB::ZLIB -static)
+  # --primary-test (phase 6b) runs the sim's FMGC wrapper fmgc/Fmgc.cpp, which compiles against the repository's
+  # FmgcComputer: only with a model variant identical to it
+  list(GET parts 1 dir)
+  set(same_model TRUE)
+  foreach(f FmgcComputer.h FmgcComputer_types.h)
+    file(READ ${dir}/${f} variant_text)
+    file(READ ${WASM_SRC}/model/${f} repo_text)
+    if(NOT variant_text STREQUAL repo_text)
+      set(same_model FALSE)
+    endif()
+  endforeach()
+  if(same_model)
+    target_sources(fmgc-shadow-test-${name} PRIVATE ${SHADOW_SRC}/Fmgc.cpp)
+    target_compile_definitions(fmgc-shadow-test-${name} PRIVATE SHADOW_TEST_WRAPPER=1)
+  endif()
 endforeach()
 
 # ---- FCU (readable FCU phase): the generated FcuComputer, its replay over 3209001 recordings, the readable FCU
@@ -298,6 +313,50 @@ foreach(variant ${MODEL_VARIANTS})
   target_include_directories(fadec-check-${name} PRIVATE ${gen_dir} ${WASM_SRC} src)
   target_compile_options(fadec-check-${name} PRIVATE -O2 -ffp-contract=off)
   target_link_libraries(fadec-check-${name} PRIVATE fadec_readable_${name} fadec_model_${name} ZLIB::ZLIB -static)
+endforeach()
+
+# ---- FCU and FADEC shadow modes in the sim (fbw_a320/src/shadow/) -------------------------------------------------
+# fbw_a320/build.sh compiles readable/fcu/*.cpp and readable/fadec/*.cpp; keep the lists above equal to those globs.
+foreach(unit fcu fadec)
+  string(TOUPPER ${unit} UNIT)
+  file(GLOB unit_all RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/readable/${unit}/*.cpp)
+  set(unit_lib ${READABLE_${UNIT}_SOURCES})
+  list(SORT unit_all)
+  list(SORT unit_lib)
+  if(NOT unit_all STREQUAL unit_lib)
+    message(FATAL_ERROR "READABLE_${UNIT}_SOURCES differs from readable/${unit}/*.cpp (what the wasm build compiles)")
+  endif()
+endforeach()
+
+# The committed leaf tables of the FCU and FADEC shadow checkers must match the repo's types headers.
+set(UNIT_SHADOW_SRC ${WASM_SRC}/shadow)
+add_custom_command(
+  OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/unit-shadow-leaves.checked
+  COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_leaf_table.py ${WASM_SRC}/model/FcuComputer_types.h
+          ${UNIT_SHADOW_SRC}/FcuOutputLeaves.gen.h --root fcu_outputs --namespace fcu_shadow --check
+  COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_leaf_table.py ${WASM_SRC}/model/FadecComputer_types.h
+          ${UNIT_SHADOW_SRC}/FadecOutputLeaves.gen.h --root athr_out --namespace fadec_shadow --check
+  COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_CURRENT_BINARY_DIR}/unit-shadow-leaves.checked
+  DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_leaf_table.py ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_fields.py
+          ${WASM_SRC}/model/FcuComputer_types.h ${WASM_SRC}/model/FadecComputer_types.h
+          ${UNIT_SHADOW_SRC}/FcuOutputLeaves.gen.h ${UNIT_SHADOW_SRC}/FadecOutputLeaves.gen.h)
+add_custom_target(unit-shadow-leaves-check ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/unit-shadow-leaves.checked)
+
+# Native drivers and tests of the sim's FCU / FADEC shadow checkers (the same sources the wasm module compiles).
+foreach(variant ${MODEL_VARIANTS})
+  string(REPLACE "=" ";" parts ${variant})
+  list(GET parts 0 name)
+  set(gen_dir ${CMAKE_CURRENT_BINARY_DIR}/gen-${name})
+  foreach(unit fcu fadec)
+    add_executable(${unit}-shadow-test-${name} src/${unit}_shadow_test.cpp ${UNIT_SHADOW_SRC}/ShadowChecker.cpp
+      ${UNIT_SHADOW_SRC}/FcuShadow.cpp ${UNIT_SHADOW_SRC}/FadecShadow.cpp ${gen_dir}/${unit}_fields.gen.h)
+    add_dependencies(${unit}-shadow-test-${name} unit-shadow-leaves-check)
+    target_include_directories(${unit}-shadow-test-${name} PRIVATE ${gen_dir} ${WASM_SRC} ${UNIT_SHADOW_SRC} src
+      ${CMAKE_CURRENT_SOURCE_DIR})
+    target_compile_options(${unit}-shadow-test-${name} PRIVATE -O2 -ffp-contract=off)
+    target_link_libraries(${unit}-shadow-test-${name} PRIVATE fcu_readable_${name} fcu_model_${name} fadec_readable_${name}
+      fadec_model_${name} ZLIB::ZLIB -static)
+  endforeach()
 endforeach()
 
 # Control-law checks (Phase 3): an instrumented copy of the stock model (outer-loop call hooks and probes), never the

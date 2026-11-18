@@ -4,7 +4,9 @@
 # and libc++ fbw.wasm links) and the compiler flags of fbw-a32nx/src/wasm/fbw_a320/build.sh (-flto -O2; the generated
 # model as in its main compile, the readable FMGC and the shadow as in its shadow compile). Runs in the dev container.
 # Run it with scripts/check-shadow-wasm-corpus.sh (node's WASI). Needs build/cmake/gen-stock/fields.gen.h
-# (scripts/build.sh stock=...).
+# (scripts/build.sh stock=...). Also build/wasm/fcu-shadow-test.wasm and fadec-shadow-test.wasm (src/fcu_shadow_test.cpp,
+# src/fadec_shadow_test.cpp: the sim's FCU / FADEC shadow, readable/fcu, readable/fadec, the generated models; needs
+# gen-stock/fcu_fields.gen.h and fadec_fields.gen.h).
 # Usage: scripts/build-shadow-wasm.sh
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
@@ -22,7 +24,7 @@ zlib=fbw-common/src/wasm/fbw_common/src/zlib
 gen=$lab/build/cmake/gen-stock
 out=$lab/build/wasm
 [ -f "$gen/fields.gen.h" ] || { echo "error: $gen/fields.gen.h missing (run scripts/build.sh stock=HEAD)" >&2; exit 2; }
-rm -rf "$out/obj" && mkdir -p "$out/obj/zlib" "$out/obj/model" "$out/obj/shadow"
+rm -rf "$out/obj" && mkdir -p "$out/obj/zlib" "$out/obj/model" "$out/obj/shadow" "$out/obj/fcu" "$out/obj/fadec"
 sysroot="$MSFS_SDK/WASM/wasi-sysroot"
 flags=(-flto -O2 -DNDEBUG -target wasm32-unknown-wasi --sysroot "$sysroot" -D_MSFS_WASM=1 -D__wasi__ -D_LARGEFILE64_SOURCE
   -D_LIBCPP_HAS_NO_THREADS -D_WINDLL -D_MBCS -mthread-model single -fno-exceptions -fms-extensions -fvisibility=hidden
@@ -53,3 +55,22 @@ wasm-ld -O2 --lto-O2 --strip-debug --gc-sections -z stack-size=8388608 -L "$lib"
   "$out"/obj/zlib/*.o "$out"/obj/model/*.o "$out"/obj/shadow/*.o -lc++ -lc++abi -lc "$lib/libclang_rt.builtins-wasm32.a" \
   -o "$out/fmgc-shadow-test.wasm"
 ls -l "$out/fmgc-shadow-test.wasm"
+
+# the FCU and FADEC shadow tests: generated model as the main compile, the shadow core, FcuShadow / FadecShadow and the
+# readable computer as fbw_a320/build.sh's FCU / FADEC shadow compiles, the test driver with them
+for unit in fcu fadec; do
+  case $unit in
+    fcu) model=FcuComputer shadow=FcuShadow ;;
+    fadec) model=FadecComputer shadow=FadecShadow ;;
+  esac
+  (cd "$out/obj/$unit" && clang++ -c "${flags[@]}" "${cxx[@]}" -I "$repo/$wasm_src/model" \
+    "$repo/$wasm_src/model/$model.cpp" "$repo/$wasm_src/model/${model}_data.cpp" &&
+    clang++ -c "${flags[@]}" "${cxx[@]}" -ffp-contract=off -I "$repo/$wasm_src/model" -I "$repo/$lab" -I "$repo/$lab/readable" \
+      -I "$repo/$wasm_src/shadow" -I "$repo/$wasm_src" -I "$repo/$gen" -I "$repo/$lab/src" -I "$repo/$zlib" \
+      "$repo/$wasm_src/shadow/ShadowChecker.cpp" "$repo/$wasm_src/shadow/$shadow.cpp" "$repo/$lab/readable/$unit"/*.cpp \
+      "$repo/$lab/src/${unit}_shadow_test.cpp")
+  wasm-ld -O2 --lto-O2 --strip-debug --gc-sections -z stack-size=8388608 -L "$lib" "$lib/crt1-command.o" \
+    "$out"/obj/zlib/*.o "$out/obj/$unit"/*.o -lc++ -lc++abi -lc "$lib/libclang_rt.builtins-wasm32.a" \
+    -o "$out/$unit-shadow-test.wasm"
+  ls -l "$out/$unit-shadow-test.wasm"
+done

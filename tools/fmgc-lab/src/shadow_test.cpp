@@ -24,6 +24,11 @@
 //          float, a bool, an enum, an SSM) is reported as exactly one mismatching frame and one episode, with the field,
 //          both values and the episode end in the log; 4. one readable input perturbed on one frame (dt x 1.5) is
 //          reported from that frame on, including computed (non input-copy) outputs.
+//   fmgc-shadow-test --primary-test [--unit 1|2] [--power SEED] [--log FILE] file.fdr
+//       Phase 6b ([FMGC] READABLE_PRIMARY): three copies of the sim's FMGC wrapper (fmgc/Fmgc.cpp) on the recording's
+//       inputs, generated primary without and with the shadow and readable primary; their aircraft-visible outputs (bus,
+//       discrete, debug/flight data recorder) must be identical every frame. Only built when the model variant's
+//       FmgcComputer is the repository's (SHADOW_TEST_WRAPPER), since the wrapper compiles against that one.
 
 #include <chrono>
 #include <cstdio>
@@ -42,6 +47,12 @@
 #include "readable/fmgc.h"
 #include "replay_core.h"
 #include "scenario_power.h"
+
+#if defined(SHADOW_TEST_WRAPPER)
+#include <new>
+
+#include "fmgc/Fmgc.h"  // the sim wrapper (fmgc/Fmgc.cpp), for --primary-test
+#endif
 
 using Clock = std::chrono::steady_clock;
 using fmgc_shadow::kOutputLeafCount;
@@ -356,11 +367,160 @@ int selfTest(const std::string& path, const std::string& logDir) {
   return failures ? 1 : 0;
 }
 
+// ---- readable primary (phase 6b) --------------------------------------------------------------------------------------
+
+#if defined(SHADOW_TEST_WRAPPER)
+/**
+ * The sim's FMGC wrapper (fmgc/Fmgc.cpp: power supply monitoring, self-test, computer_running, bus/discrete outputs),
+ * built in zeroed storage as the global FlyByWireInterface holds it (several of its members have no initialiser).
+ */
+struct WrappedFmgc {
+  void* mem;
+  Fmgc* fmgc;
+  WrappedFmgc(bool unit1) : mem(std::calloc(1, sizeof(Fmgc))), fmgc(new (mem) Fmgc(unit1)) {}
+  ~WrappedFmgc() {
+    fmgc->~Fmgc();
+    std::free(mem);
+  }
+  WrappedFmgc(const WrappedFmgc&) = delete;
+  WrappedFmgc& operator=(const WrappedFmgc&) = delete;
+};
+
+/** Counts the leaves that differ between two instances of one struct (fields.gen.h visitor), bit-exact. */
+struct DiffCounter {
+  int differing = 0;
+  std::string first;
+  template <typename T>
+  void field(const char* prefix, const char* name, T& a, T& b, FieldKind /*kind*/) {
+    if (std::memcmp(&a, &b, sizeof(T)) != 0) {
+      if (differing++ == 0) {
+        first = std::string(prefix) + name;
+      }
+    }
+  }
+};
+
+int debugDiffs(const fmgc_outputs& a, const fmgc_outputs& b, std::string& first) {
+  int n = 0;
+  for (size_t i = 0; i < kOutputLeafCount; i++) {
+    const auto& l = kOutputLeaves[i];
+    if (std::memcmp(reinterpret_cast<const char*>(&a) + l.offset, reinterpret_cast<const char*>(&b) + l.offset, l.size) != 0) {
+      if (n++ == 0) {
+        first = l.name;
+      }
+    }
+  }
+  return n;
+}
+
+/**
+ * --primary-test: the aircraft-visible outputs of the FMGC wrapper (getBusOutputs, getDiscreteOutputs, getDebugOutputs:
+ * what the other computers, the L:vars and the flight data recorder get) are identical with the generated FMGC primary
+ * (shadow off and shadow on) and with the readable FMGC primary ([FMGC] READABLE_PRIMARY), every frame of a recording.
+ * The wrapper's power input follows the replayed computer_running (with --power SEED: power episodes), so outages,
+ * restarts and self-tests run in all three.
+ */
+int primaryTest(const std::string& path, int unit, const std::string& logPath) {
+  WrappedFmgc stock(unit == 1), shadowed(unit == 1), primary(unit == 1);
+  shadowed.fmgc->enableShadow();
+  primary.fmgc->enableShadow(true);
+  FmgcShadowLog log("");
+  log.setPath(logPath);
+  log.setReadablePrimary(true);
+  FmgcShadow* units[1] = {primary.fmgc->getShadow()};
+
+  check(&primary.fmgc->getDebugOutputs() == &primary.fmgc->getShadow()->readableOutputs() &&
+            &shadowed.fmgc->getDebugOutputs() != &shadowed.fmgc->getShadow()->readableOutputs(),
+        "debug outputs (flight data recorder) come from the readable FMGC with READABLE_PRIMARY, from the generated one without");
+
+  auto dummy = std::make_unique<FmgcComputer>();
+  dummy->initialize();
+  Replayer replayer(path, {}, *dummy);
+  if (!replayer.ok()) {
+    std::printf("FAIL %s: %s\n", path.c_str(), replayer.error().c_str());
+    return 1;
+  }
+  std::unique_ptr<PowerScenario> power;
+  if (powerSeed >= 0) {
+    power = std::make_unique<PowerScenario>(static_cast<uint64_t>(powerSeed));
+  }
+  replayer.beforeStep = [&]() {
+    if (unit == 2) {
+      replayer.mutableInputs().discrete_inputs.is_unit_1 = false;
+    }
+    if (power) {
+      power->apply(replayer.mutableInputs(), replayer.inputs().time.dt);
+    }
+  };
+  uint64_t frames = 0, healthyFrames = 0, healthChanges = 0, busDiffFrames = 0, discreteDiffFrames = 0, debugDiffFrames = 0;
+  bool wasHealthy = false;
+  std::string firstDiff;
+  replayer.afterStep = [&]() {
+    const fmgc_inputs& in = replayer.inputs();
+    const bool powered = in.sim_data.computer_running;
+    for (WrappedFmgc* w : {&stock, &shadowed, &primary}) {
+      w->fmgc->modelInputs.in = in;
+      w->fmgc->update(in.time.dt, in.time.simulation_time, /*faultActive*/ false, powered);
+    }
+    frames++;
+    base_fmgc_discrete_outputs d[3] = {stock.fmgc->getDiscreteOutputs(), shadowed.fmgc->getDiscreteOutputs(),
+                                       primary.fmgc->getDiscreteOutputs()};
+    base_fmgc_bus_outputs b[3];
+    b[0] = stock.fmgc->getBusOutputs();
+    b[1] = shadowed.fmgc->getBusOutputs();
+    b[2] = primary.fmgc->getBusOutputs();
+    const bool healthy = d[0].fmgc_healthy;
+    healthyFrames += healthy;
+    healthChanges += healthy != wasHealthy;
+    wasHealthy = healthy;
+    bool busDiff = false, discreteDiff = false, debugDiff = false;
+    for (int k : {1, 2}) {
+      DiffCounter cb, cd;
+      visit(cb, "bus.", b[0], b[k]);
+      visit(cd, "discrete.", d[0], d[k]);
+      std::string first;
+      const int nDebug = debugDiffs(stock.fmgc->getDebugOutputs(), (k == 1 ? shadowed : primary).fmgc->getDebugOutputs(), first);
+      busDiff = busDiff || cb.differing > 0;
+      discreteDiff = discreteDiff || cd.differing > 0;
+      debugDiff = debugDiff || nDebug > 0;
+      if (firstDiff.empty() && (cb.differing || cd.differing || nDebug)) {
+        firstDiff = std::string(k == 1 ? "shadow" : "readable primary") + " frame " + std::to_string(frames) + ": " +
+                    (cb.differing ? cb.first : cd.differing ? cd.first : "debug." + first);
+      }
+    }
+    busDiffFrames += busDiff;
+    discreteDiffFrames += discreteDiff;
+    debugDiffFrames += debugDiff;
+  };
+  Replayer::Frame fr;
+  const std::string fdrName = baseName(path);
+  while (replayer.next(fr)) {
+    log.update(units, 1, fdrName, fr.index);
+  }
+  log.writeSummary(units, 1);
+
+  const std::string what = baseName(path) + " unit " + std::to_string(unit) + (powerSeed >= 0 ? " power " + std::to_string(powerSeed) : "");
+  std::printf("INFO %s: %llu frames, %llu healthy, %llu health changes\n", what.c_str(), static_cast<unsigned long long>(frames),
+              static_cast<unsigned long long>(healthyFrames), static_cast<unsigned long long>(healthChanges));
+  check(frames > 0 && busDiffFrames == 0 && discreteDiffFrames == 0 && debugDiffFrames == 0,
+        what + ": wrapper outputs identical with generated primary (shadow off/on) and readable primary: bus " +
+            std::to_string(busDiffFrames) + ", discrete " + std::to_string(discreteDiffFrames) + ", debug " +
+            std::to_string(debugDiffFrames) + " differing frames" + (firstDiff.empty() ? "" : " (first: " + firstDiff + ")"));
+  check(primary.fmgc->getShadow()->frames() == frames && primary.fmgc->getShadow()->mismatchFrames() == 0 &&
+            shadowed.fmgc->getShadow()->mismatchFrames() == 0,
+        what + ": both shadows ran every frame, 0 mismatches");
+  if (logPath != "-") {
+    check(contains(readFile(logPath), "primary=readable"), what + ": the log header says primary=readable");
+  }
+  std::printf("%s: %d failure(s)\n", failures ? "PRIMARY-TEST FAILED" : "PRIMARY-TEST PASSED", failures);
+  return failures ? 1 : 0;
+}
+#endif
 }  // namespace
 
 int main(int argc, char** argv) {
   int unit = 1;
-  bool timing = false, self = false, stack = false;
+  bool timing = false, self = false, stack = false, primary = false;
   std::string logPath = "-", logDir = ".";
   std::vector<std::string> files;
   for (int i = 1; i < argc; i++) {
@@ -381,6 +541,8 @@ int main(int argc, char** argv) {
       stack = true;
     } else if (a == "--self-test") {
       self = true;
+    } else if (a == "--primary-test") {
+      primary = true;
     } else if (!a.empty() && a[0] != '-') {
       files.push_back(a);
     } else {
@@ -388,14 +550,25 @@ int main(int argc, char** argv) {
       break;
     }
   }
-  if (files.empty() || (unit != 1 && unit != 2) || (self && files.size() != 1)) {
+  if (files.empty() || (unit != 1 && unit != 2) || ((self || primary) && files.size() != 1)) {
     std::fprintf(stderr,
                  "usage: fmgc-shadow-test [--unit 1|2] [--log FILE] [--time] [--power SEED] [--no-shadow] [--stack] file.fdr...\n"
-                 "       fmgc-shadow-test --self-test [--log-dir DIR] file.fdr\n");
+                 "       fmgc-shadow-test --self-test [--log-dir DIR] file.fdr\n"
+                 "       fmgc-shadow-test --primary-test [--unit 1|2] [--power SEED] [--log FILE] file.fdr\n");
     return 2;
   }
   if (self) {
     return selfTest(files[0], logDir);
+  }
+  if (primary) {
+#if defined(SHADOW_TEST_WRAPPER)
+    return primaryTest(files[0], unit, logPath);
+#else
+    std::fprintf(stderr,
+                 "--primary-test: not built (this model variant's FmgcComputer differs from the repository's, which the sim "
+                 "wrapper fmgc/Fmgc.cpp compiles against)\n");
+    return 2;
+#endif
   }
 #if defined(__wasm__)
   const uintptr_t stackLow = stack ? paintStack() : 0;
