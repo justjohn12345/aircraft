@@ -305,6 +305,10 @@ decided by which set condition stays true longer (inferred; see the CLB doc). Th
 (`personal/fg-alt-cst-reversion`, commit 0ead3c962) patches exactly term 4 with
 `¬(CLB/DES armed ∧ next_alt_cstr changed) ∧ ¬CLB_last ∧ ¬DES_last`.
 
+A DIR TO that deletes the constraint during ALT CST* does the same (in flight 2026-11-17, KSJC SPTNS1: DIR TO TECKY
+during the SPTNS 5000 capture → V/S). The FCOM (DSC-22_30-40-50-20) lists one ALT CST* reversion only: to V/S / FPA
+if NAV disengages.
+
 ### V/S target not held  (`vs_target_not_held`, `rtb_y_n` at 3382, output 4040)
 
 `apOwn ∧ (VS ∨ FPA) ∧ ((CAS < VLS + 3 ∧ err < −thr) ∨ (CAS > VMAX − 3 ∧ err > thr))` — 3372–3383
