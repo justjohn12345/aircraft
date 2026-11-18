@@ -24,4 +24,4 @@ list=${list#;}
 targets=""
 for t in ${TARGETS:-}; do targets="$targets --target $t"; done
 cd "$repo"
-./scripts/dev-env/run.sh bash -c "cd tools/fmgc-lab && cmake -S . -B build/cmake -G Ninja -DMODEL_VARIANTS='$list' >/dev/null && cmake --build build/cmake ${JOBS:+-j $JOBS}$targets && cp build/cmake/fcu-* build/cmake/fadec-* build/cmake/fmgc-replay-* build/cmake/fmgc-dump-params-* build/cmake/fmgc-blocks-test-* build/cmake/fmgc-probe-* build/cmake/fmgc-check-* build/cmake/fdr-fcu-* build/ 2>/dev/null; true"
+./scripts/dev-env/run.sh bash -c "cd tools/fmgc-lab && cmake -S . -B build/cmake -G Ninja -DMODEL_VARIANTS='$list' >/dev/null && cmake --build build/cmake ${JOBS:+-j $JOBS}$targets && cp build/cmake/fcu-* build/cmake/fadec-* build/cmake/fac-* build/cmake/fmgc-replay-* build/cmake/fmgc-dump-params-* build/cmake/fmgc-blocks-test-* build/cmake/fmgc-probe-* build/cmake/fmgc-check-* build/cmake/fdr-fcu-* build/ 2>/dev/null; true"
