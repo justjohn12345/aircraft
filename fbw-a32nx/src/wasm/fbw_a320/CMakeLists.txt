@@ -31,11 +31,14 @@ include_directories(
     ${FBW_ROOT}/fbw-common/src/wasm/fbw_common/src/inih
     ${FBW_ROOT}/fbw-common/src/wasm/fbw-common/src
     ${FBW_ROOT}/tools/fmgc-lab
+    ${FBW_ROOT}/tools/fmgc-lab/readable
 )
 
 # the readable FMGC run by the FMGC shadow checker (build.sh compiles these separately)
 file(GLOB READABLE_FMGC_SOURCES ${FBW_ROOT}/tools/fmgc-lab/readable/*.cpp)
 list(FILTER READABLE_FMGC_SOURCES EXCLUDE REGEX "_test\\.cpp$")
+# the readable FCU and FADEC run by the FCU / FADEC shadow checkers (src/shadow, also compiled separately)
+file(GLOB READABLE_FCU_FADEC_SOURCES ${FBW_ROOT}/tools/fmgc-lab/readable/fcu/*.cpp ${FBW_ROOT}/tools/fmgc-lab/readable/fadec/*.cpp)
 
 add_executable(flybywire-a32nx-fbw
     ${FBW_ROOT}/fbw-common/src/wasm/fbw_common/src/zlib/zfstream.cc
@@ -56,6 +59,10 @@ add_executable(flybywire-a32nx-fbw
     src/fmgc/Fmgc.cpp
     src/fmgc/FmgcShadow.cpp
     ${READABLE_FMGC_SOURCES}
+    src/shadow/ShadowChecker.cpp
+    src/shadow/FcuShadow.cpp
+    src/shadow/FadecShadow.cpp
+    ${READABLE_FCU_FADEC_SOURCES}
     src/interface/SimConnectInterface.cpp
     src/model/ElacComputer_data.cpp
     src/model/ElacComputer.cpp
