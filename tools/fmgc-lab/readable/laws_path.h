@@ -39,6 +39,7 @@ struct FlareLawState {
   blocks::WashoutFilter bxWashout;            // longitudinal acceleration, 50 rad/s (sf_WashoutFilter_b)
   blocks::LagFilter<double> vsLag;            // V/S, 1/30 rad/s (sf_LagFilter_or)
   blocks::LeadLagFilter radioRate;            // 15 s/(s + 15) on RA: radio height rate, ft/s (pU, pY_l)
+  blocks::LagFilter<double> rateCorrectionLag;  // fix: radio rate - V/S, 1 rad/s (sf_LagFilter_flareRate)
   bool wasActive = false;                     // FLARE law active on the previous step (wasActive)
   bool wasActivePrimed = false;
   double tau = 1.0;                           // flare time constant, s (Tau)
