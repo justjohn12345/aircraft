@@ -316,6 +316,39 @@ foreach(variant ${MODEL_VARIANTS})
   target_link_libraries(fac-check-${name} PRIVATE fac_readable_${name} fac_model_${name} ZLIB::ZLIB -static)
 endforeach()
 
+# ---- EFCS control laws (readable ELAC / SEC phase): the generated pitch and lateral laws the ELAC and the SEC step,
+# their readable versions (readable/efcs/) and the law-level differential checks (synthetic input trajectories).
+set(READABLE_PITCH_LAW_SOURCES
+  readable/efcs/pitch_normal_law.cpp readable/efcs/pitch_alternate_law.cpp readable/efcs/pitch_direct_law.cpp)
+set(READABLE_LATERAL_LAW_SOURCES readable/efcs/lateral_normal_law.cpp readable/efcs/lateral_direct_law.cpp)
+foreach(variant ${MODEL_VARIANTS})
+  string(REPLACE "=" ";" parts ${variant})
+  list(GET parts 0 name)
+  list(GET parts 1 dir)
+  set(gen_dir ${CMAKE_CURRENT_BINARY_DIR}/gen-${name})
+
+  add_library(efcs_laws_model_${name} STATIC ${dir}/PitchNormalLaw.cpp ${dir}/PitchAlternateLaw.cpp
+    ${dir}/PitchDirectLaw.cpp ${dir}/LateralNormalLaw.cpp ${dir}/LateralDirectLaw.cpp ${dir}/look1_binlxpw.cpp
+    ${dir}/look2_binlxpw.cpp)
+  target_include_directories(efcs_laws_model_${name} PUBLIC ${dir})
+  target_compile_options(efcs_laws_model_${name} PRIVATE -O2 -ffp-contract=off)
+
+  add_library(efcs_laws_readable_${name} STATIC ${READABLE_PITCH_LAW_SOURCES} ${READABLE_LATERAL_LAW_SOURCES})
+  target_include_directories(efcs_laws_readable_${name} PUBLIC ${dir} readable readable/fac readable/efcs)
+  target_compile_options(efcs_laws_readable_${name} PRIVATE -O2 -ffp-contract=off)
+
+  add_executable(efcs-pitch-law-check-${name} src/check_pitch_laws.cpp)
+  target_include_directories(efcs-pitch-law-check-${name} PRIVATE ${WASM_SRC} src)
+  target_compile_options(efcs-pitch-law-check-${name} PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(efcs-pitch-law-check-${name} PRIVATE efcs_laws_readable_${name} efcs_laws_model_${name} -static)
+
+  add_executable(efcs-lateral-law-check-${name} src/check_lateral_laws.cpp)
+  target_include_directories(efcs-lateral-law-check-${name} PRIVATE ${WASM_SRC} src)
+  target_compile_options(efcs-lateral-law-check-${name} PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(efcs-lateral-law-check-${name} PRIVATE efcs_laws_readable_${name} efcs_laws_model_${name}
+    -static)
+endforeach()
+
 # Control-law checks (Phase 3): an instrumented copy of the stock model (outer-loop call hooks and probes), never the
 # repo's model/ folder. Built when a variant named "stock" exists.
 foreach(variant ${MODEL_VARIANTS})
