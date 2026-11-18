@@ -13,7 +13,7 @@ sideslip and the engine-out sideslip target. It is 1,587 generated lines: 13 lag
 - Readable: `tools/fmgc-lab/readable/fac/` (namespace `fac::readable`), bit-exact (below).
 - Wrapper: `fbw_a320/src/fac/Fac.cpp`; sim wiring `FlyByWireInterface::updateFac()` (~2418).
 - Parameters (block name = value): `docs/params-FacComputer.txt`.
-- Findings: `docs/findings.md`, section 9 (A1-A18).
+- Findings: `docs/findings.md`, section 9 (A1-A17).
 
 ## Where it runs
 
@@ -259,10 +259,41 @@ VMAX where the stand-in sensor values differ.
   the decoded discrete words), `--power` (restarts: 1 frame, 2-10 frames, 0.2-5 s, 5-60 s, flicker, either or both
   FACs), `--sim` (dt 0, 1e-6, 0.2-2 s; time jumps; slew, pause, tracking).
 - `scripts/check-fac-corpus.sh` (JOBS=2, SEEDS=2): 511 runs over the 30 recordings, 73.9 M steps x 2 FACs, 31,204
-  restarts, **0 mismatches** (also with the coverage build). Mean step time: generated 0.39 us, readable 0.30 us
-  (gcc -O2).
-- Coverage: see below.
-- Mutation test: see below.
+  restarts, **0 mismatches** (gcc build and the clang coverage build). Mean step time: generated 0.39 us, readable
+  0.30 us (gcc -O2).
+- Coverage (`COVERAGE=1`, clang source-based, the same 511 runs; also 0 mismatches): `FacComputer.cpp` 94.4 % of
+  branches (553/586), 97.8 % of lines; every branch side not taken is unreachable:
+  - library blocks with constant parameters (22): BitfromLabel's left-shift and range tests (constant bit numbers 11-29,
+    4 sides); the lag / washout filters' second "not empty" flag (always set with the first, 3); the reset input of the
+    rate limiters without an initial value (constant false, 4); MTrigNode and PulseNode falling-edge branches (all
+    instances detect rising edges, 11);
+  - conditions implied by an earlier test (5): CONF 1+F's "bit 18 and not bit 26" after "bit 18 and bit 26"; "AP own not
+    engaged" in the FMGC selection's second factor (reached only with the own AP engaged); "not unit 1" in the three
+    priorities (reached only when not unit 1);
+  - saturations and switches with constant inputs (6): the travel limit 0..30 deg (the table spans 3.4..25), the speed
+    scale lost constant (2), the sideslip / sideslip target SSM switch thresholds (2).
+  Readable FAC: 100 % of branches except the one "AP own not engaged" side in `sensors.cpp` (kept to mirror the
+  generated condition); the functions not covered are the checker's state accessors.
+- Mutation test (`scripts/mutate-fac.sh`, `scripts/mutate-fcu.py` with `UNIT=fac`): 412 mutants of `readable/fac/`
+  (&& <-> ||, ! dropped, == <-> !=, < <-> <=, > <-> >=, true <-> false, += -> -=, every decimal literal x1.5 (0 -> 1)
+  except in table rows, every integer constant + 1, i.e. every ARINC bit number; `fac_blocks.h` included, the buffet
+  table header not): **390 caught**. The first run left 41; a mutant that crashes (an out-of-bounds table row) or hangs
+  (an endless search loop) now counts as caught, and a scripted phase holding the inputs exactly at the thresholds
+  (radio height 20 / 100 / 200 ft, 20000 ft, alpha on the alpha floor threshold, pitch + pitch rate 10 deg, CAS on the
+  travel limiter breakpoints, beyond the trend and sideslip target limits, the low energy deceleration term beyond
+  its limits, ELAC 2 with one of its two bits) killed 19 more. The 22 survivors are equivalent:
+  - reset and default values that are never read (6): the filtered alpha's reset value, `running_` in `initialize()`
+    (everything is already reset), the two rate limiters' default "primed" flags, the speed brake default (limited to
+    <= 0 anyway), the buffet CAS below 20000 ft (below the VMCL floor);
+  - limits that are never reached (5): the buffet Mach limit 1 (the table tops at 0.77), the travel limit range 0..30
+    (the table spans 3.4..25), VMO 350 kt (VFE in CONF 0 is 350 kt too), the 200 ft RA default of the flight phase chart
+    (300 is also above 100 ft);
+  - values that cannot occur (2): Mach exactly 0.6 (a float never equals the double 0.6), the anticipation limit outside
+    CONF 3 / FULL (limited to 0 either way);
+  - comparisons at a boundary that give the same value (5): the look-up's first / last breakpoint tests, the saturation
+    returning the limit, the CONF bit loop running to an index 6 that the LGCIU bit overwrites;
+  - exact equality of computed doubles (4): an inner look-up breakpoint taken from the left interval with fraction 1
+    (the same value for these tables), and the low energy comparisons alpha == threshold, VLS == CAS, VLS - 10 == CAS.
 
 ### Rerun
 

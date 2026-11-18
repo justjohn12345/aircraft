@@ -495,7 +495,7 @@ class ScriptScenario {
       cruise(in, 250.0, 3000.0, 3.0);
       ap(in, true, false);
       radioHeight(in, 200.0);
-      elac(in, t < 73, true, false, 10.0);
+      elac(in, t < 73, true, false, t < 71 ? 10.0 : (t < 72 ? 40.0 : -40.0));  // +-40: beyond the 1.7 deg/s limit
       for (auto& i : in) {
         if (t >= 73 && t < 76) setBit(i.bus_inputs.elac_2_bus.discrete_status_word_1, 26, false);
         if (t >= 76) i.discrete_inputs.elac_2_healthy = false;

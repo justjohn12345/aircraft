@@ -399,3 +399,6 @@ Results (2026-11-18, 30 recordings): `check-fac-corpus.sh` 511 runs, 73.9 M step
 0 mismatches; step time generated 0.39 us, readable 0.30 us. `fac-replay` over 4.34 M frames (8.27 M FAC frames with
 known inputs): every field bit-exact except two washout filter outputs that the sim computes with fused multiply-adds
 (speed trend, max 2.4e-7 kt on 2.48 M FAC frames; yaw damper order, max 2.2e-16 deg on 19,406; finding A1).
+Coverage of `FacComputer.cpp`: 94.4 % of branches (553/586; the 33 missing sides are unreachable: constant block
+parameters, implied conditions, constant switches), 97.8 % of lines; readable FAC 100 % of branches but one implied
+side. Mutation test: 390 of 412 mutants caught, the 22 survivors equivalent (`docs/fac.md`).
