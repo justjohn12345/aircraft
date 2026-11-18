@@ -1,8 +1,17 @@
 #include "Fcu.h"
 #include "../Arinc429Utils.h"
+#include "../shadow/FcuShadow.h"
 
 Fcu::Fcu() {
   fcuComputer.initialize();
+}
+
+Fcu::~Fcu() = default;
+
+void Fcu::enableShadow() {
+  if (!shadow) {
+    shadow = std::make_unique<FcuShadow>();
+  }
 }
 
 void Fcu::initSelfTests(int index) {
@@ -38,6 +47,11 @@ void Fcu::update(double deltaTime,
   fcuComputer.setExternalInputs(&modelInputs);
   fcuComputer.step();
   modelOutputs = fcuComputer.getExternalOutputs().out;
+
+  if (shadow) {
+    // Same inputs as the generated step (computer_running included); compare only, the outputs above are unchanged.
+    shadow->step(modelInputs.in, fcuComputer.getExternalOutputs().out);
+  }
 
   maskSpdMachValueChange(deltaTime);
 }

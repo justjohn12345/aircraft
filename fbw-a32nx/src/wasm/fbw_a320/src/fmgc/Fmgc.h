@@ -24,7 +24,10 @@ class Fmgc {
   // Shadow mode (ini [FMGC] SHADOW_ENABLED, see tools/fmgc-lab/docs/shadow.md): the readable FMGC runs alongside the
   // generated one on the same inputs and its outputs are compared; the aircraft only ever uses the generated outputs.
   // Call before the first update(), so both computers start from power-up.
-  void enableShadow();
+  // readablePrimary (ini [FMGC] READABLE_PRIMARY): the readable FMGC's outputs are the ones the aircraft uses (bus and
+  // discrete outputs, debug outputs, flight data recorder) and the generated FmgcComputer is the shadow; both are still
+  // stepped and compared the same way, restart/self-test/power logic unchanged.
+  void enableShadow(bool readablePrimary = false);
 
   FmgcShadow* getShadow() const { return shadow.get(); }
 
@@ -47,6 +50,9 @@ class Fmgc {
 
   // Shadow checker, null unless enabled
   std::unique_ptr<FmgcShadow> shadow;
+
+  // The readable FMGC's outputs are used (requires the shadow)
+  bool readablePrimary = false;
 
   // Computer Self-monitoring vars
   bool monitoringHealthy;
