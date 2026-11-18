@@ -158,6 +158,7 @@ class FmgcOuterLoops final
     rtDW_WashoutFilter_FmgcOuterLoops_o_T sf_WashoutFilter_b;
     rtDW_LeadLagFilter_FmgcOuterLoops_T sf_LeadLagFilter_i;
     rtDW_LagFilter_FmgcOuterLoops_j_T sf_LagFilter_or;
+    rtDW_LagFilter_FmgcOuterLoops_j_T sf_LagFilter_flareRate;  // fix: flare radio height rate (personal/fg-flare-rate)
     rtDW_LagFilter_FmgcOuterLoops_T sf_LagFilter_d;
     rtDW_LagFilter_FmgcOuterLoops_T sf_LagFilter_o;
     rtDW_WashoutFilter_FmgcOuterLoops_T sf_WashoutFilter_k;
