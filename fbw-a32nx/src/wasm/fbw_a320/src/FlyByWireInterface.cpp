@@ -62,6 +62,10 @@ void FlyByWireInterface::disconnect() {
     shadow::ShadowChecker* units[2] = {&fadecShadows[0]->checker(), &fadecShadows[1]->checker()};
     fadecShadowLog->writeSummary(units, 2);
   }
+  if (facShadowLog) {
+    shadow::ShadowChecker* units[2] = {&facs[0].getShadow()->checker(), &facs[1].getShadow()->checker()};
+    facShadowLog->writeSummary(units, 2);
+  }
 
   // terminate flight data recorder
   flightDataRecorder.terminate();
@@ -229,7 +233,7 @@ bool FlyByWireInterface::update(double sampleTime) {
   }
 
   // shadow modes: log new mismatches with this frame's recording, update the mismatch counters
-  if (fmgcShadowEnabled || fcuShadowEnabled || fadecShadowEnabled) {
+  if (fmgcShadowEnabled || fcuShadowEnabled || fadecShadowEnabled || facShadowEnabled) {
     result &= updateShadows();
   }
 
@@ -320,6 +324,23 @@ void FlyByWireInterface::loadConfiguration() {
       idFadecShadowMismatches[i]->set(0);
     }
     fadecShadowLog = FadecShadow::makeLog("\\work\\");
+  }
+
+  // --------------------------------------------------------------------------
+  // load values - FAC shadow mode
+  facShadowEnabled = INITypeConversion::getBoolean(iniStructure, "FAC", "SHADOW_ENABLED", false);
+
+  // print configuration into console
+  std::printf("WASM: FAC       : SHADOW_ENABLED                       = %d\n", facShadowEnabled);
+
+  // before the first FAC step, so both computers start from power-up
+  if (facShadowEnabled) {
+    for (int i = 0; i < 2; i++) {
+      facs[i].enableShadow();
+      idFacShadowMismatches[i] = std::make_unique<LocalVariable>("A32NX_FAC_" + std::to_string(i + 1) + "_SHADOW_MISMATCHES");
+      idFacShadowMismatches[i]->set(0);
+    }
+    facShadowLog = FacShadow::makeLog("\\work\\");
   }
 
   // --------------------------------------------------------------------------
@@ -1818,6 +1839,17 @@ bool FlyByWireInterface::updateShadows() {
       const double mismatches = static_cast<double>(units[i]->mismatchFrames());
       if (idFadecShadowMismatches[i]->get() != mismatches) {
         idFadecShadowMismatches[i]->set(mismatches);
+      }
+    }
+  }
+
+  if (facShadowEnabled) {
+    shadow::ShadowChecker* units[2] = {&facs[0].getShadow()->checker(), &facs[1].getShadow()->checker()};
+    facShadowLog->update(units, 2, fdrFile, fdrRecord);
+    for (int i = 0; i < 2; i++) {
+      const double mismatches = static_cast<double>(units[i]->mismatchFrames());
+      if (idFacShadowMismatches[i]->get() != mismatches) {
+        idFacShadowMismatches[i]->set(mismatches);
       }
     }
   }

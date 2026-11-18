@@ -55,7 +55,7 @@ FmgcOuterLoops.cpp:2090). Consequences:
 - Later captures, normal case (old offset 5–70 ft): the command steps down at entry by 2–20 % (e.g. 1000 → 843 fpm,
   1339 → 1092 fpm in the corpus), then the capture is slightly slower. Minor.
 
-## Finding 2: an ALT* entry with zero V/S poisons every later capture of the flight (the "400 fpm creep")
+## Finding 2: an ALT* entry with zero V/S poisons the following captures (the "400 fpm creep")
 
 If ALT_ACQ is entered with Hdot ≈ 0, then `k ≈ 0` and `dH_offset = 500/|k| − 100` becomes huge (1e7–1e13 ft in the
 corpus). If Hdot were exactly 0 the offset would be infinite and `k·r = 0·inf` NaN for every later capture (inferred,
@@ -69,6 +69,11 @@ Hdot_c ≈ Hdot · O_new / (O_old + O_new) ≈ 500 · |Hdot| / (500 + |Hdot|)   
 
 constant for the whole capture, since dH ≪ O. Instead of an exponential capture from the current V/S, the aircraft
 drops to ~350–450 fpm the moment ALT* engages and creeps to the target at that rate.
+
+It wears off (correction, 2026-11-18, from FBW's review): at each entry `O_new ≈ 500·O_old/|Hdot|`, so every capture
+faster than 500 fpm shrinks the offset by `|Hdot|/500` (4× at 2000 fpm) and a slower one grows it. From the 1e7–1e13 ft
+seen in the corpus that is roughly 10–20 normal captures before the captures are normal again (finding 1 only); the
+recorded flights had too few captures after the poisoning to show it.
 
 Where it happens: ALT* engages **on the ground** before takeoff (on_ground, RA 0, V/S 0) when the FCU altitude is within
 the 80 ft minimum capture distance of the aircraft altitude. Every recording with a capture since 2026-11-11 16:39

@@ -22,6 +22,7 @@
 #include "recording/FlightDataRecorder.h"
 #include "recording/RecordingDataTypes.h"
 #include "sec/Sec.h"
+#include "shadow/FacShadow.h"
 #include "shadow/FadecShadow.h"
 #include "shadow/FcuShadow.h"
 
@@ -82,6 +83,10 @@ class FlyByWireInterface {
   std::unique_ptr<FadecShadow> fadecShadows[2];
   std::unique_ptr<shadow::ShadowLog> fadecShadowLog;
   std::unique_ptr<LocalVariable> idFadecShadowMismatches[2];
+  // FAC shadow mode (ini [FAC] SHADOW_ENABLED, same design)
+  bool facShadowEnabled = false;
+  std::unique_ptr<shadow::ShadowLog> facShadowLog;
+  std::unique_ptr<LocalVariable> idFacShadowMismatches[2];
 
   ConfirmNode elac2EmerPowersupplyRelayTimer = ConfirmNode(true, 30);
   SRFlipFlop elac2EmerPowersupplyNoseGearConditionLatch = SRFlipFlop(true);

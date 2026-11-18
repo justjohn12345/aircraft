@@ -1,8 +1,8 @@
 # fmgc-lab
 
 Native (no MSFS) build of the generated A32NX FMGC (`FmgcComputer` + `FmgcOuterLoops`) with a flight data recorder
-replay harness. Phase 0 of the FMGC reverse-engineering plan (`~/fmgc-lab/PLAN.md`). The FCU (`FcuComputer`) and the
-FADEC (`FadecComputer`) have the same treatment: see "FCU" and "FADEC" at the end.
+replay harness. Phase 0 of the FMGC reverse-engineering plan (`~/fmgc-lab/PLAN.md`). The FCU (`FcuComputer`), the
+FADEC (`FadecComputer`) and the FAC (`FacComputer`) have the same treatment: see "FCU", "FADEC" and "FAC" at the end.
 
 **Findings:** every bug and FCOM difference found so far, with status, is indexed in `docs/findings.md`.
 
@@ -300,11 +300,13 @@ Results (2026-11-15): 0 mismatching frames over 18.5 M native frames (6.15 M pla
 mismatching frame. Cost per FMGC and frame: native 1.93 µs (readable step 1.78 + comparison 0.15), wasm under V8
 2.23 µs, against about 1.9 µs for the generated step; `fbw.wasm` +163 kB.
 
-**FCU and FADEC shadow** (same design, `fbw-a32nx/src/wasm/fbw_a320/src/shadow/`: a type-independent comparison core
-`ShadowChecker` plus `FcuShadow` / `FadecShadow`): `[FCU] SHADOW_ENABLED`, `[FADEC] SHADOW_ENABLED` (default off),
-`L:A32NX_FCU_SHADOW_MISMATCHES`, `L:A32NX_FADEC_{1,2}_SHADOW_MISMATCHES`, `<fdr>.fcu-shadow.log`,
-`<fdr>.fadec-shadow.log`. Leaf tables `shadow/FcuOutputLeaves.gen.h`, `FadecOutputLeaves.gen.h` (committed,
-`gen_leaf_table.py --root ... --namespace ...`, checked by the lab build).
+**FCU, FADEC and FAC shadow** (same design, `fbw-a32nx/src/wasm/fbw_a320/src/shadow/`: a type-independent comparison
+core `ShadowChecker` plus `FcuShadow` / `FadecShadow` / `FacShadow`): `[FCU] SHADOW_ENABLED`, `[FADEC] SHADOW_ENABLED`,
+`[FAC] SHADOW_ENABLED` (default off), `L:A32NX_FCU_SHADOW_MISMATCHES`, `L:A32NX_FADEC_{1,2}_SHADOW_MISMATCHES`,
+`L:A32NX_FAC_{1,2}_SHADOW_MISMATCHES`, `<fdr>.fcu-shadow.log`, `<fdr>.fadec-shadow.log`, `<fdr>.fac-shadow.log`. The
+FAC shadow takes two NaNs as equal whatever their sign and payload (the lab's FAC rule). Leaf tables
+`shadow/FcuOutputLeaves.gen.h`, `FadecOutputLeaves.gen.h`, `FacOutputLeaves.gen.h` (committed, `gen_leaf_table.py --root
+... --namespace ...`, checked by the lab build).
 
 **Phase 6b, readable FMGC primary**: `[FMGC] READABLE_PRIMARY = true` (default off, implies the FMGC shadow) makes the
 readable FMGC's outputs the ones the aircraft and the flight data recorder use; the generated FmgcComputer still runs on
@@ -313,13 +315,16 @@ the same inputs as the shadow and is compared the same way. Power/self-test/rest
 ```sh
 build/fcu-shadow-test-stock [--log FILE] [--time] [--synthetic] [--power SEED] file.fdr...   # recorded FCU inputs (3209001+)
 build/fadec-shadow-test-stock [--log FILE] [--time] [--synthetic] file.fdr...                # recorded FADEC inputs (3209004)
-build/fcu-shadow-test-stock --self-test [--log-dir DIR] file.fdr                              # likewise fadec-shadow-test
+build/fac-shadow-test-stock [--log FILE] [--time] [--synthetic] [--power SEED] file.fdr...   # recorded FAC inputs (3209005)
+build/fcu-shadow-test-stock --self-test [--log-dir DIR] file.fdr                       # likewise fadec-, fac-shadow-test
 build/fmgc-shadow-test-stock --primary-test [--unit 1|2] [--power SEED] file.fdr             # 6b: the swap is invisible
-JOBS=8 scripts/check-shadow-corpus.sh   # all of the above over the corpus (ONLY=fmgc|primary|fcu|fadec to narrow)
+JOBS=8 scripts/check-shadow-corpus.sh   # all of the above over the corpus (ONLY=fmgc|primary|fcu|fadec|fac to narrow)
 ```
 
 Results (2026-11-18, 30 recordings): FCU 8.72 M frames (plain and `--power 1`), FADEC 8.72 M FADEC-frames, 0
 mismatching frames, self-tests pass, native and wasm; cost per frame FCU 0.30 µs, FADEC 0.07 µs per engine (native).
+FAC: 8.67 M FAC-frames plain and 8.67 M with power episodes (6,122 restarts), 0 mismatching, self-test (with the NaN
+rule) passes native and wasm; cost per FAC and frame 0.43 µs native (readable 0.25 + comparison 0.18), 0.55 µs wasm.
 Readable primary: 120 runs, 17.4 M frames, wrapper outputs (bus, discrete, debug/FDR) bit-identical either way.
 Details: `docs/shadow.md`.
 
@@ -409,3 +414,55 @@ runs, 62.9 M steps x 2 FADECs, 0 mismatches; step time generated 0.075 us, reada
 494,560 frames; a corrupted output field is reported. No real 3209004 recording yet: when one exists,
 `build/fadec-replay-stock <file>` proves the harness reproduces the sim, and `check-fadec-corpus.sh` adds recorded-input
 runs for it automatically.
+
+## FAC: replay, readable FAC, differential check
+
+The generated A32NX FAC (`FacComputer`, two instances) the same way: a native build per model variant
+(`fac_model_<variant>`; identical in every variant), a replay of every recording against the recorded FAC outputs, a
+readable rewrite in `readable/fac/` (namespace `fac::readable`) that is bit-exact against the generated code, and a
+differential checker. Spec, inputs, outputs, memories, FCOM checks: `docs/fac.md`; findings A1-A17 in
+`docs/findings.md` section 9; parameters `docs/params-FacComputer.txt`.
+
+```sh
+TARGETS='fac-check-stock fac-replay-stock fac-synth-fdr-stock fac-dump-params-stock' JOBS=2 scripts/build.sh stock=master
+build/fac-replay-stock [--from N] [--to N] [--trace T0 T1] [--no-trim-search] [--rebuild] [--ieee] file.fdr
+build/fac-check-stock [--script SEED] [--failures SEED] [--discretes SEED] [--power SEED] [--sim SEED] \
+  [--warm FILE] [--dump STEP] [--time] file.fdr
+JOBS=2 [SEEDS=2] scripts/check-fac-corpus.sh                   # every recording x configs, then fac-replay on each
+FAC_ONLY=1 scripts/build-fuzz.sh && COVERAGE=1 JOBS=2 scripts/check-fac-corpus.sh   # + clang coverage
+JOBS=2 scripts/mutate-fac.sh                                     # mutation test of the checker
+build/fac-synth-fdr-stock [--outage FRAME LEN] [--corrupt FRAME] in.fdr out.fdr   # make a 3209005 file
+```
+
+- The personal format 3209005 (branch `personal/fdr-fbw`) records each FAC's model inputs as the wrapper handed them to
+  the model at its last step (and the ELACs' and SECs'); `src/fac_drive.h` uses them as they are (`--rebuild` ignores
+  them), and a FAC that did not step in the sim (power outage over 10 ms: its block repeats, `FdrFrame::facStepped`)
+  is not stepped either. Cold starts are then exact too.
+- Older formats (3200006 to 3209004) record the FAC bus, discretes and analog orders only. `src/fac_drive.h` rebuilds
+  both FACs' inputs from what is recorded: ADIRS buses from FMGC 1's
+  recorded inputs, ELAC buses, the opposite FAC's previous / current outputs, FMGC 1's B bus, FMGC 2's bus and AP
+  discrete from the *next* frame's FMGC 1 inputs (A bus words, RA selection), the SFCC and LGCIU words from what each
+  FAC reported, the pushbutton and hydraulics from its engaged / available discretes, and the rudder trim switches by
+  stepping the generated FAC with candidates until the trim outputs match. Before FMGC 1 first runs (cold starts) the
+  sensor buses are stand-ins (its first running frame's), flagged "approximate".
+- `fac-replay-<variant>` (`src/fac_replay.cpp`): the generated FACs on those inputs against the recorded outputs, with
+  denormals flushed to zero as in the sim; per field: mismatches, max ULP and absolute difference, separately for
+  frames with approximate inputs (and the 60 s after, while filters converge).
+- `fac-check-<variant>` (`src/check_fac.cpp`): generated and readable FACs in lockstep, free-running, every leaf of
+  `fac_outputs` (633 per FAC, inputs copy included) and 107 hidden memories per FAC bit-exact each step (NaNs equal
+  whatever their sign); exit 1 on any mismatch. Injectors (`src/fac_scenarios.h`): scripted tour of every function and
+  fallback, random word failures and data (NaN, inf, huge), discrete flips and analog positions, power cuts (restarts),
+  dt / time / sim flags.
+- `fac-synth-fdr-<variant>` (`src/fac_synth_fdr.cpp`): writes a 3209005 file from any recording, with the rebuilt FAC
+  inputs and the generated FACs' outputs (`--outage`: FAC 1 not stepped for LEN frames), to exercise the recorded-input
+  path before real 3209005 recordings exist. On the 2026-11-17 recording (183,122 frames, cold start included, a 20-frame
+  outage): `fac-replay` 0 mismatches on all 180,213 healthy frames of each FAC, `--rebuild` on it reports the outage, a
+  corrupted field is reported.
+
+Results (2026-11-18, 30 recordings): `check-fac-corpus.sh` 511 runs, 73.9 M steps x 2 FACs, 31,204 FAC restarts,
+0 mismatches; step time generated 0.39 us, readable 0.30 us. `fac-replay` over 4.34 M frames (8.27 M FAC frames with
+known inputs): every field bit-exact except two washout filter outputs that the sim computes with fused multiply-adds
+(speed trend, max 2.4e-7 kt on 2.48 M FAC frames; yaw damper order, max 2.2e-16 deg on 19,406; finding A1).
+Coverage of `FacComputer.cpp`: 94.4 % of branches (553/586; the 33 missing sides are unreachable: constant block
+parameters, implied conditions, constant switches), 97.8 % of lines; readable FAC 100 % of branches but one implied
+side. Mutation test: 390 of 412 mutants caught, the 22 survivors equivalent (`docs/fac.md`).

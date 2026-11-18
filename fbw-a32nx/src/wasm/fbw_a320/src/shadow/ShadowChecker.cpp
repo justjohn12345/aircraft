@@ -95,12 +95,13 @@ std::string baseName(const std::string& path) {
 
 // ---- ShadowChecker -----------------------------------------------------------------------------------------------------
 
-ShadowChecker::ShadowChecker(int unit, const Leaf* leaves, size_t leafCount, size_t outputBytes, bool hasSimData)
+ShadowChecker::ShadowChecker(int unit, const Leaf* leaves, size_t leafCount, size_t outputBytes, bool hasSimData, bool nanEqual)
     : unit_(unit),
       leaves_(leaves),
       leafCount_(leafCount),
       outputBytes_(outputBytes),
       hasSimData_(hasSimData),
+      nanEqual_(nanEqual),
       mask_(new uint64_t[(outputBytes + 7) / 8]()),
       events_(new Event[kMaxEvents]()),
       leafMismatches_(new uint32_t[leafCount]()),
@@ -135,6 +136,15 @@ bool ShadowChecker::differs(const uint8_t* a, const uint8_t* b) const {
   return acc != 0;
 }
 
+bool ShadowChecker::leafDiffers(size_t i, const uint8_t* a, const uint8_t* b) const {
+  const Leaf& leaf = leaves_[i];
+  if (std::memcmp(a + leaf.offset, b + leaf.offset, leaf.size) == 0) {
+    return false;
+  }
+  return !(nanEqual_ && leaf.kind == LeafKind::Float && std::isnan(floatValue(leaf, a + leaf.offset)) &&
+           std::isnan(floatValue(leaf, b + leaf.offset)));
+}
+
 void ShadowChecker::step(const void* generated, const void* readable, const FrameInputs& in) {
   frames_++;
   const bool running = in.computerRunning;
@@ -148,7 +158,16 @@ void ShadowChecker::step(const void* generated, const void* readable, const Fram
 
   const auto* g = static_cast<const uint8_t*>(generated);
   const auto* r = static_cast<const uint8_t*>(readable);
-  if (differs(g, r)) {
+  bool mismatch = differs(g, r);
+  if (mismatch && nanEqual_) {
+    // the bytes differ somewhere: a mismatch unless every differing leaf holds a NaN in both
+    mismatch = false;
+    for (size_t i = 0; i < leafCount_ && !mismatch; i++) {
+      mismatch = leafDiffers(i, g, r);
+    }
+    nanEqualFrames_ += !mismatch;
+  }
+  if (mismatch) {
     recordMismatch(g, r, in);
   } else if (inEpisode_) {
     inEpisode_ = false;
@@ -188,7 +207,7 @@ void ShadowChecker::recordMismatch(const uint8_t* pg, const uint8_t* pr, const F
   bool nanOnly = true;
   for (size_t i = 0; i < leafCount_; i++) {
     const Leaf& leaf = leaves_[i];
-    if (std::memcmp(pg + leaf.offset, pr + leaf.offset, leaf.size) == 0) {
+    if (!leafDiffers(i, pg, pr)) {
       continue;
     }
     fields++;
@@ -279,6 +298,9 @@ void ShadowChecker::writeSummary(std::FILE* f) const {
                "first_mismatch_sim_time=%.6f nan_only_frames=%llu zero_sign_leaf_frames=%llu\n",
                ull(mismatchFrames_), ull(episodes_), eventCount_, ull(ongoing > longestEpisode_ ? ongoing : longestEpisode_),
                inEpisode_ ? 1 : 0, ull(firstMismatchFrame_), firstMismatchSimTime_, ull(nanOnlyFrames_), ull(signedZeroLeafFrames_));
+  if (nanEqual_) {
+    std::fprintf(f, "NAN_EQUAL unit=%d frames=%llu\n", unit_, ull(nanEqualFrames_));
+  }
   if (hasSimData_) {
     std::fprintf(f,
                  "UNRECORDED unit=%d slew_on_frames=%llu pause_on_frames=%llu tracking_mode_on_override_frames=%llu "

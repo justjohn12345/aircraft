@@ -244,6 +244,21 @@ clang++ \
 
 popd
 
+# the FAC shadow checker and the readable FAC (readable/fac/*.cpp)
+mkdir -p "${DIR}/obj/fac-shadow"
+rm -f "${DIR}/obj/fac-shadow/"*.o
+pushd "${DIR}/obj/fac-shadow"
+
+clang++ \
+  "${SHADOW_CLANG_ARGS[@]}" \
+  -I "${DIR}/src/model" \
+  -I "${FMGC_LAB_DIR}" \
+  -I "${FMGC_LAB_DIR}/readable" \
+  "${DIR}/src/shadow/FacShadow.cpp" \
+  "${FMGC_LAB_DIR}"/readable/fac/*.cpp
+
+popd
+
 # link modules
 wasm-ld \
   --no-entry \
@@ -268,4 +283,5 @@ wasm-ld \
   ${DIR}/obj/fmgc-shadow/*.o \
   ${DIR}/obj/fcu-shadow/*.o \
   ${DIR}/obj/fadec-shadow/*.o \
+  ${DIR}/obj/fac-shadow/*.o \
   -o $OUTPUT

@@ -1,16 +1,22 @@
 #pragma once
 
+#include <memory>
+
 #include "../Arinc429.h"
 #include "../model/FacComputer.h"
 #include "../utils/PulseNode.h"
 #include "../utils/SRFlipFlop.h"
 #include "FacIO.h"
 
+class FacShadow;
+
 class Fac {
  public:
   Fac(bool isUnit1);
 
   Fac(const Fac&);
+
+  ~Fac();
 
   void update(double deltaTime, double simulationTime, bool faultActive, bool isPowered);
 
@@ -19,6 +25,13 @@ class Fac {
   base_fac_discrete_outputs getDiscreteOutputs();
 
   base_fac_analog_outputs getAnalogOutputs();
+
+  // Shadow mode (ini [FAC] SHADOW_ENABLED, see tools/fmgc-lab/docs/shadow.md): the readable FAC runs alongside the
+  // generated one on the same inputs and its outputs are compared; the aircraft only ever uses the generated outputs.
+  // Call before the first update(), so both computers start from power-up.
+  void enableShadow();
+
+  FacShadow* getShadow() const { return shadow.get(); }
 
   FacComputer::ExternalInputs_FacComputer_T modelInputs = {};
 
@@ -41,6 +54,9 @@ class Fac {
   FacComputer facComputer;
   fac_outputs modelOutputs;
   FacComputer::ExternalInputs_FacComputer_T lastStepInputs = {};
+
+  // Shadow checker, null unless enabled
+  std::unique_ptr<FacShadow> shadow;
 
   // Computer Self-monitoring vars
   bool facHealthy;
