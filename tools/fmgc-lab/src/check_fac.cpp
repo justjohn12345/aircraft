@@ -10,7 +10,8 @@
 // a NaN's sign), and so are the hidden memories (confirm nodes, filters, rate limiters, latches, the flight phase
 // chart, the rudder trim integrator).
 //
-// Inputs (src/fac_drive.h): both FACs' inputs rebuilt from any recording (no format records them). Injectors
+// Inputs (src/fac_drive.h): both FACs' recorded inputs (3209005), or inputs rebuilt from any older recording; both
+// FACs step on every frame (also where a recorded FAC did not step in the sim: the check is differential). Injectors
 // (src/fac_scenarios.h), combinable: --script, --failures, --discretes, --power, --sim SEED. --warm FILE: run both over
 // FILE first, then re-construct the generated FACs and initialize() both (checks that the readable initialize() is a
 // complete reset). --time: step times only. --dump STEP: every generated output leaf (inputs included) of both FACs at
@@ -382,7 +383,7 @@ int main(int argc, char** argv) {
   while (drive.next(step)) {
   }
 
-  std::string mode = "inputs rebuilt from the record";
+  std::string mode = drive.recordedInputs() ? "recorded FAC inputs (3209005)" : "inputs rebuilt from the record";
   auto addMode = [&](const char* name, long seed, long episodes) {
     if (seed >= 0) mode += std::string(", ") + name + " (seed " + std::to_string(seed) + ", " + std::to_string(episodes) +
                            " episodes)";

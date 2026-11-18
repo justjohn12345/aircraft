@@ -5,8 +5,12 @@
 // FAC inputs from a flight data recording, for the FAC replay (src/fac_replay.cpp) and the differential check
 // (src/check_fac.cpp). Both FACs every frame.
 //
-// No recording format holds the FAC model inputs: every one (3200006 and the personal 3209001-3209004) has only the FAC
-// outputs as the wrapper (fac/Fac.cpp) gives them (bus, discretes, analog orders). The inputs are rebuilt the way
+// Recorded (personal format 3209005, FdrFrame::hasFbwInputs): each FAC's model inputs exactly as its wrapper handed them
+// to the model at its last step; used as they are (Options::rebuild ignores them). A FAC that did not step on a frame (a
+// power outage over 10 ms stops the model with its outputs held; FdrFrame::facStepped) is not stepped here either.
+//
+// Rebuilt (every older format: 3200006 and the personal 3209001-3209004 have only the FAC outputs as the wrapper
+// (fac/Fac.cpp) gives them: bus, discretes, analog orders). The inputs are rebuilt the way
 // FlyByWireInterface::updateFac() builds them, from what the record holds. Order of a frame in the sim: sensors (RA,
 // LGCIU, SFCC, ILS, ADIRS), FCU, FMGC 1, FMGC 2, ELACs, SECs, FAC 1, FAC 2, FCDCs, FADECs, recorder; the FACs do not run
 // in active pause (no recorded frame either), the FMGCs do.
@@ -110,6 +114,7 @@ class FacInputDrive {
  public:
   struct Options {
     bool inferTrim = true;
+    bool rebuild = false;  // rebuild the inputs even when the recording holds them (3209005)
   };
 
   struct StepInfo {
@@ -122,6 +127,8 @@ class FacInputDrive {
                            // stays frozen to the end of the file (stale sensor buses)
     int trimMask;          // the inferred rudder trim inputs (bit 0 left, 1 right, 2 reset)
     bool trimUnresolved;   // no candidate reproduced the recorded rudder trim outputs
+    bool recorded;         // the inputs are the recorded ones (3209005)
+    bool stepped[2];       // the FAC's model stepped on this frame (false only in a recorded power outage)
   };
 
   FacInputDrive(const std::string& path, Options opt) : reader_(path), opt_(opt) {
@@ -158,6 +165,10 @@ class FacInputDrive {
   long trimSearched() const { return trimSearched_; }
   long trimUnresolved() const { return trimUnresolved_; }
   long abMismatch() const { return abMismatch_; }
+  /** The inputs are the recorded ones (a 3209005 recording, not Options::rebuild). */
+  bool recordedInputs() const { return reader_.hasFbwInputs() && !opt_.rebuild; }
+  /** Recorded frames on which FAC i's model did not step (power outage over 10 ms). */
+  long notStepped(int i) const { return notStepped_[i]; }
 
   /** The reference (generated) FACs, stepped with the final inputs of each frame. */
   const FacComputer& reference(int i) const { return *ref_[i]; }
@@ -190,6 +201,27 @@ class FacInputDrive {
     for (int i = 0; i < 2; i++) {
       info.healthy[i] = !fac_drive::isUnhealthyBus(f.fac[i].bus_outputs);
       healthyFrames_[i] += info.healthy[i];
+      info.stepped[i] = true;
+    }
+
+    if (recordedInputs()) {
+      // the recorded inputs, as the model saw them; a FAC that did not step in the sim does not step here either
+      info.recorded = true;
+      info.approxInputs = false;
+      for (int i = 0; i < 2; i++) {
+        in_[i] = f.facInputs[i];
+        info.stepped[i] = f.facStepped(i);
+        notStepped_[i] += !info.stepped[i];
+        if (info.stepped[i]) stepRef(i);
+      }
+      const base_fac_discrete_inputs& d = in_[0].discrete_inputs;
+      info.trimMask = (d.rudder_trim_switch_left ? 1 : 0) | (d.rudder_trim_switch_right ? 2 : 0) |
+                      (d.rudder_trim_reset_button ? 4 : 0);
+      trimFrames_ += info.trimMask != 0;
+      fac_inputs s[2] = {in_[0], in_[1]};
+      step(s, info);
+      frames_++;
+      return true;
     }
 
     // FMGC 2 as the FACs see it this frame: from the next frame's FMGC 1 inputs when usable
@@ -560,5 +592,5 @@ class FacInputDrive {
   int lastTrim_ = 0;
   bool trimUnresolvedThisFrame_ = false;
   long frames_ = 0, healthyFrames_[2] = {0, 0}, fmgc1Frozen_ = 0, fmgc2Approx_ = 0, gaps_ = 0;
-  long trimFrames_ = 0, trimSearched_ = 0, trimUnresolved_ = 0, abMismatch_ = 0;
+  long trimFrames_ = 0, trimSearched_ = 0, trimUnresolved_ = 0, abMismatch_ = 0, notStepped_[2] = {0, 0};
 };

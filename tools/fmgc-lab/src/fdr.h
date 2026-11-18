@@ -5,8 +5,8 @@
 // Reader for A32NX flight data recorder files (.fdr): a gzip stream holding the interface version (uint64) followed
 // by one record per frame, written by FlightDataRecorder::update(). The layout must match the recorder of one of the
 // interface versions below: 3200006 (stock), 3209001 (personal build: 3200006 plus the FCU at the end of the record),
-// 3209002 (personal build: 3209001 plus the FMS VNAV state), 3209003 (plus the VNAV diagnostics) or 3209004 (plus both
-// FADECs' model inputs and outputs).
+// 3209002 (personal build: 3209001 plus the FMS VNAV state), 3209003 (plus the VNAV diagnostics), 3209004 (plus both
+// FADECs' model inputs and outputs) or 3209005 (plus the ELAC, SEC and FAC model inputs).
 
 #pragma once
 
@@ -30,6 +30,8 @@ constexpr uint64_t FDR_INTERFACE_VERSION_FCU_VNAV_DIAG = 3209003;
 constexpr size_t FDR_FMS_VNAV_DIAG_COUNT = 20;
 // 3209003 plus, for FADEC 1 then 2, the model inputs and outputs (FadecModelRecord; personal/fdr-fadec)
 constexpr uint64_t FDR_INTERFACE_VERSION_FADEC = 3209004;
+// 3209004 plus the model inputs of the last step of ELAC 1, 2, SEC 1, 2, 3, FAC 1, 2 (personal/fdr-fbw)
+constexpr uint64_t FDR_INTERFACE_VERSION_FBW = 3209005;
 
 /**
  * The FMS VNAV state of a 3209002 record: a copy of FmsVnavData (RecordingDataTypes.h of the personal/fdr-vnav branch),
@@ -130,8 +132,21 @@ struct FdrFrame {
   FmsVnavRecord fmsVnav;
   bool hasFmsVnavDiag;  // 3209003 and later, the fields of FmsVnavDiagData in order
   double fmsVnavDiag[FDR_FMS_VNAV_DIAG_COUNT];
-  bool hasFadecModel;  // 3209004
+  bool hasFadecModel;  // 3209004 and later
   FadecModelRecord fadecModel[2];
+  // 3209005: the model inputs each computer's wrapper (elac/Elac.cpp, sec/Sec.cpp, fac/Fac.cpp) handed its model at its
+  // last step, exactly as the model saw them (the ELAC's computer_running is the previous frame's: the wrapper sets it
+  // after handing the inputs over). The ELACs and SECs step on every recorded frame; a FAC does not step during a power
+  // outage over 10 ms, and its block then repeats its last step's (facStepped()).
+  bool hasFbwInputs;
+  elac_inputs elacInputs[2];
+  sec_inputs secInputs[3];
+  fac_inputs facInputs[2];
+
+  /** FAC i (0, 1) stepped on this frame: its inputs carry this frame's monotonic time (the ELACs always step). */
+  bool facStepped(int i) const {
+    return hasFbwInputs && facInputs[i].time.monotonic_time == elacInputs[0].time.monotonic_time;
+  }
 };
 
 class FdrReader {
@@ -147,7 +162,7 @@ class FdrReader {
       error_ = "cannot read interface version";
     } else if (version_ != FDR_INTERFACE_VERSION && version_ != FDR_INTERFACE_VERSION_FCU &&
                version_ != FDR_INTERFACE_VERSION_FCU_VNAV && version_ != FDR_INTERFACE_VERSION_FCU_VNAV_DIAG &&
-               version_ != FDR_INTERFACE_VERSION_FADEC) {
+               version_ != FDR_INTERFACE_VERSION_FADEC && version_ != FDR_INTERFACE_VERSION_FBW) {
       error_ = "unsupported interface version " + std::to_string(version_);
     }
   }
@@ -164,19 +179,21 @@ class FdrReader {
   bool ok() const { return error_.empty(); }
   const std::string& error() const { return error_; }
   uint64_t version() const { return version_; }
-  bool hasFcu() const { return version_ >= FDR_INTERFACE_VERSION_FCU && version_ <= FDR_INTERFACE_VERSION_FADEC; }
-  bool hasFmsVnav() const { return version_ >= FDR_INTERFACE_VERSION_FCU_VNAV && version_ <= FDR_INTERFACE_VERSION_FADEC; }
+  bool hasFcu() const { return version_ >= FDR_INTERFACE_VERSION_FCU && version_ <= FDR_INTERFACE_VERSION_FBW; }
+  bool hasFmsVnav() const { return version_ >= FDR_INTERFACE_VERSION_FCU_VNAV && version_ <= FDR_INTERFACE_VERSION_FBW; }
   bool hasFmsVnavDiag() const {
-    return version_ >= FDR_INTERFACE_VERSION_FCU_VNAV_DIAG && version_ <= FDR_INTERFACE_VERSION_FADEC;
+    return version_ >= FDR_INTERFACE_VERSION_FCU_VNAV_DIAG && version_ <= FDR_INTERFACE_VERSION_FBW;
   }
-  bool hasFadecModel() const { return version_ == FDR_INTERFACE_VERSION_FADEC; }
+  bool hasFadecModel() const { return version_ >= FDR_INTERFACE_VERSION_FADEC && version_ <= FDR_INTERFACE_VERSION_FBW; }
+  bool hasFbwInputs() const { return version_ == FDR_INTERFACE_VERSION_FBW; }
 
   /** Reads the next frame; false at the end of the file (a truncated last frame is ignored). */
   bool next(FdrFrame& frame) {
     return readField(frame.base) && readField(frame.specific) && readElac(frame.elac[0]) && readElac(frame.elac[1]) &&
            readSec(frame.sec[0]) && readSec(frame.sec[1]) && readSec(frame.sec[2]) && readFac(frame.fac[0]) &&
            readFac(frame.fac[1]) && readFmgc(frame.fmgc1) && readField(frame.fadec[0].bus_outputs) &&
-           readField(frame.fadec[0].outputs) && readFcu(frame) && readFmsVnav(frame) && readFadecModel(frame);
+           readField(frame.fadec[0].outputs) && readFcu(frame) && readFmsVnav(frame) && readFadecModel(frame) &&
+           readFbwInputs(frame);
   }
 
  private:
@@ -223,6 +240,11 @@ class FdrReader {
       }
     }
     return true;
+  }
+
+  bool readFbwInputs(FdrFrame& frame) {
+    frame.hasFbwInputs = hasFbwInputs();
+    return !frame.hasFbwInputs || (readField(frame.elacInputs) && readField(frame.secInputs) && readField(frame.facInputs));
   }
 
   bool readFmgc(FmgcRecord& r) {

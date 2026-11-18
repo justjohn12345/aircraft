@@ -2,19 +2,20 @@
 //
 // SPDX-License-Identifier: GPL-3.0
 
-// Replays the generated FACs over a flight data recording: both FACs' inputs are rebuilt from the record
-// (src/fac_drive.h: no recording format holds the FAC model inputs), the generated FacComputer is stepped with them, and
-// its outputs are compared with the recorded ones (bus, discretes, analog orders), bit-exact field by field, for both
-// FACs. On frames where a FAC was not healthy the model is stepped with computer_running false and the recording is
-// checked against what the wrapper sends then (every bus word FailureWarning with 0, no function engaged, 0 orders).
+// Replays the generated FACs over a flight data recording: both FACs' inputs are taken from the record (3209005) or
+// rebuilt from it (older formats; src/fac_drive.h), the generated FacComputer is stepped with them, and its outputs
+// are compared with the recorded ones (bus, discretes, analog orders), bit-exact field by field, for both FACs. On
+// frames where a FAC was not healthy the model is stepped with computer_running false and the recording is checked
+// against what the wrapper sends then (every bus word FailureWarning with 0, no function engaged, 0 orders).
 //
-// What the comparison proves: the native harness reproduces the sim's FACs from inputs rebuilt from the record. The
-// rudder trim switches and reset button are not recorded and are chosen per frame so that the rudder trim outputs
-// match (the drive's search); the FAC pushbutton and hydraulic pressure come from the recorded engaged / available
-// discretes; the SFCC and LGCIU buses are rebuilt from what the FAC reported. Every other output is independent of
-// the recorded FAC outputs.
+// What the comparison proves: the native harness reproduces the sim's FACs from the recorded inputs (3209005), or from
+// inputs rebuilt from the record. When rebuilt, the rudder trim switches and reset button are not recorded and are
+// chosen per frame so that the rudder trim outputs match (the drive's search); the FAC pushbutton and hydraulic
+// pressure come from the recorded engaged / available discretes; the SFCC and LGCIU buses are rebuilt from what the FAC
+// reported. Every other output is independent of the recorded FAC outputs.
 //
-// Usage: fac-replay [--from N] [--to N] [--list N] [--no-trim-search] <file.fdr>
+// Usage: fac-replay [--from N] [--to N] [--list N] [--no-trim-search] [--rebuild] <file.fdr>
+//   --rebuild: rebuild the inputs even when the recording holds them
 // Exit status: 0 = every compared field matched, 1 = mismatches, 2 = usage/file error.
 
 #include <xmmintrin.h>
@@ -136,6 +137,8 @@ int main(int argc, char** argv) {
       ftz = false;
     } else if (a == "--no-trim-search") {
       opt.inferTrim = false;
+    } else if (a == "--rebuild") {
+      opt.rebuild = true;
     } else if (path.empty() && !a.empty() && a[0] != '-') {
       path = a;
     } else {
@@ -144,7 +147,8 @@ int main(int argc, char** argv) {
     }
   }
   if (path.empty()) {
-    std::fprintf(stderr, "usage: fac-replay [--from N] [--to N] [--list N] [--trace T0 T1] [--no-trim-search] [--ieee] <file.fdr>\n");
+    std::fprintf(stderr, "usage: fac-replay [--from N] [--to N] [--list N] [--trace T0 T1] [--no-trim-search] [--rebuild] [--ieee] "
+                         "<file.fdr>\n");
     return 2;
   }
 
@@ -230,10 +234,17 @@ int main(int argc, char** argv) {
   std::printf("frames   %ld recorded; healthy fac1 %ld, fac2 %ld (restarts %ld, %ld); compared fac1 %ld, fac2 %ld\n",
               drive.frames(), drive.healthyFrames(0), drive.healthyFrames(1), restarts[0], restarts[1], compared[0],
               compared[1]);
-  std::printf("inputs   fmgc1 not running %ld frames, fmgc2 held %ld frames, %ld active pause gaps, A/B word check %ld\n",
-              drive.fmgc1Frozen(), drive.fmgc2ApproxFrames(), drive.gaps(), drive.abMismatch());
-  std::printf("trim     inputs inferred on %ld frames (search on %ld, unresolved %ld)%s\n", drive.trimFrames(),
-              drive.trimSearched(), drive.trimUnresolved(), opt.inferTrim ? "" : " (search off)");
+  if (drive.recordedInputs()) {
+    std::printf("inputs   recorded (3209005); not stepped (power outage) fac1 %ld, fac2 %ld frames; %ld active pause gaps\n",
+                drive.notStepped(0), drive.notStepped(1), drive.gaps());
+    std::printf("trim     rudder trim inputs on %ld frames (recorded)\n", drive.trimFrames());
+  } else {
+    std::printf("inputs   rebuilt; fmgc1 not running %ld frames, fmgc2 held %ld frames, %ld active pause gaps, A/B word "
+                "check %ld\n",
+                drive.fmgc1Frozen(), drive.fmgc2ApproxFrames(), drive.gaps(), drive.abMismatch());
+    std::printf("trim     inputs inferred on %ld frames (search on %ld, unresolved %ld)%s\n", drive.trimFrames(),
+                drive.trimSearched(), drive.trimUnresolved(), opt.inferTrim ? "" : " (search off)");
+  }
   std::printf("unhealthy frames not as the wrapper sends them: fac1 %ld, fac2 %ld\n", unhealthyBad[0], unhealthyBad[1]);
 
   long failing = 0, approxFailing = 0;

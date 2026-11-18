@@ -301,6 +301,11 @@ foreach(variant ${MODEL_VARIANTS})
   target_compile_options(fac-replay-${name} PRIVATE -O2 -ffp-contract=off)
   target_link_libraries(fac-replay-${name} PRIVATE fac_model_${name} ZLIB::ZLIB -static)
 
+  add_executable(fac-synth-fdr-${name} src/fac_synth_fdr.cpp)
+  target_include_directories(fac-synth-fdr-${name} PRIVATE ${WASM_SRC} src)
+  target_compile_options(fac-synth-fdr-${name} PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(fac-synth-fdr-${name} PRIVATE fac_model_${name} ZLIB::ZLIB -static)
+
   add_library(fac_readable_${name} STATIC ${READABLE_FAC_SOURCES})
   target_include_directories(fac_readable_${name} PUBLIC ${dir} readable readable/fac)
   target_compile_options(fac_readable_${name} PRIVATE -O2 -ffp-contract=off)

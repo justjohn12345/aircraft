@@ -370,17 +370,22 @@ differential checker. Spec, inputs, outputs, memories, FCOM checks: `docs/fac.md
 `docs/findings.md` section 9; parameters `docs/params-FacComputer.txt`.
 
 ```sh
-TARGETS='fac-check-stock fac-replay-stock fac-dump-params-stock' JOBS=2 scripts/build.sh stock=master
-build/fac-replay-stock [--from N] [--to N] [--trace T0 T1] [--no-trim-search] [--ieee] file.fdr
+TARGETS='fac-check-stock fac-replay-stock fac-synth-fdr-stock fac-dump-params-stock' JOBS=2 scripts/build.sh stock=master
+build/fac-replay-stock [--from N] [--to N] [--trace T0 T1] [--no-trim-search] [--rebuild] [--ieee] file.fdr
 build/fac-check-stock [--script SEED] [--failures SEED] [--discretes SEED] [--power SEED] [--sim SEED] \
   [--warm FILE] [--dump STEP] [--time] file.fdr
 JOBS=2 [SEEDS=2] scripts/check-fac-corpus.sh                   # every recording x configs, then fac-replay on each
 FAC_ONLY=1 scripts/build-fuzz.sh && COVERAGE=1 JOBS=2 scripts/check-fac-corpus.sh   # + clang coverage
 JOBS=2 scripts/mutate-fac.sh                                     # mutation test of the checker
+build/fac-synth-fdr-stock [--outage FRAME LEN] [--corrupt FRAME] in.fdr out.fdr   # make a 3209005 file
 ```
 
-- No recording format holds the FAC model inputs (every one, 3200006 to 3209004, records the FAC bus, discretes and
-  analog orders only). `src/fac_drive.h` rebuilds both FACs' inputs from what is recorded: ADIRS buses from FMGC 1's
+- The personal format 3209005 (branch `personal/fdr-fbw`) records each FAC's model inputs as the wrapper handed them to
+  the model at its last step (and the ELACs' and SECs'); `src/fac_drive.h` uses them as they are (`--rebuild` ignores
+  them), and a FAC that did not step in the sim (power outage over 10 ms: its block repeats, `FdrFrame::facStepped`)
+  is not stepped either. Cold starts are then exact too.
+- Older formats (3200006 to 3209004) record the FAC bus, discretes and analog orders only. `src/fac_drive.h` rebuilds
+  both FACs' inputs from what is recorded: ADIRS buses from FMGC 1's
   recorded inputs, ELAC buses, the opposite FAC's previous / current outputs, FMGC 1's B bus, FMGC 2's bus and AP
   discrete from the *next* frame's FMGC 1 inputs (A bus words, RA selection), the SFCC and LGCIU words from what each
   FAC reported, the pushbutton and hydraulics from its engaged / available discretes, and the rudder trim switches by
@@ -394,6 +399,11 @@ JOBS=2 scripts/mutate-fac.sh                                     # mutation test
   whatever their sign); exit 1 on any mismatch. Injectors (`src/fac_scenarios.h`): scripted tour of every function and
   fallback, random word failures and data (NaN, inf, huge), discrete flips and analog positions, power cuts (restarts),
   dt / time / sim flags.
+- `fac-synth-fdr-<variant>` (`src/fac_synth_fdr.cpp`): writes a 3209005 file from any recording, with the rebuilt FAC
+  inputs and the generated FACs' outputs (`--outage`: FAC 1 not stepped for LEN frames), to exercise the recorded-input
+  path before real 3209005 recordings exist. On the 2026-11-17 recording (183,122 frames, cold start included, a 20-frame
+  outage): `fac-replay` 0 mismatches on all 180,213 healthy frames of each FAC, `--rebuild` on it reports the outage, a
+  corrupted field is reported.
 
 Results (2026-11-18, 30 recordings): `check-fac-corpus.sh` 511 runs, 73.9 M steps x 2 FACs, 31,204 FAC restarts,
 0 mismatches; step time generated 0.39 us, readable 0.30 us. `fac-replay` over 4.34 M frames (8.27 M FAC frames with

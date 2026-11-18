@@ -200,11 +200,28 @@ washout; the 9 flight path lag filters, the two monostables; the trim reset latc
 the trim integrator, `icLoad`, the trim order rate limiter, the yaw damper washout and rate limiter, the travel limiter
 rate limiter: 107 values per FAC (every filter's pY, pU and both "not empty" flags).
 
+## Replay: recorded inputs (3209005)
+
+The personal format 3209005 (`personal/fdr-fbw`, `FlightDataRecorder::writeFbwInputs`) appends to every record the model
+inputs of the last step of ELAC 1, 2, SEC 1, 2, 3 and FAC 1, 2 (`FdrFrame::elacInputs`, `secInputs`, `facInputs`).
+Each wrapper copies the inputs right before `setExternalInputs()`, so a block is exactly what the model saw:
+`Fac::update()` sets `computer_running` before that, and skips the step during a power outage over 10 ms (its block then
+repeats the last step's: `time.monotonic_time` differs from the ELACs' of the same record, `FdrFrame::facStepped`). The
+drive takes the blocks as they are and steps a FAC only when it stepped in the sim; nothing is inferred or approximate,
+cold starts included. What remains is the sim's fused multiply-adds in the two washout filters (speed trend, yaw damper
+order; finding A1). `fac-replay --rebuild` ignores the recorded inputs.
+
+No real 3209005 recording yet: `fac-synth-fdr` writes one from any recording (the rebuilt inputs and the generated FACs'
+outputs; `--outage FRAME LEN` holds FAC 1 as a power outage does). On the 2026-11-17 recording (3209004, 183,122 frames,
+a cold start with 3,423 frames before FMGC 1 runs) with a 20-frame outage: `fac-replay` compares all 180,213 healthy
+frames of each FAC with recorded inputs, 0 mismatches, the 20 held frames recognised; `--rebuild` on the same file
+reports the outage; a corrupted output is reported.
+
 ## Replay: inputs rebuilt from the record (`src/fac_drive.h`, `fac-replay`)
 
-No recording format holds the FAC model inputs: the stock 3200006 record and the personal 3209001-3209004 ones write
-the FAC bus, discretes and analog orders of each FAC (`FacRecord`, the wrapper's outputs) and nothing of its inputs. The
-drive rebuilds them, frame by frame, from what is recorded:
+The stock 3200006 record and the personal 3209001-3209004 ones write the FAC bus, discretes and analog orders of each
+FAC (`FacRecord`, the wrapper's outputs) and nothing of its inputs. The drive rebuilds them, frame by frame, from what
+is recorded:
 
 | Input | Source | Exact? |
 |---|---|---|
