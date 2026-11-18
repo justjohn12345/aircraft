@@ -2099,6 +2099,7 @@ void FmgcOuterLoops::reset(void)
   FmgcOuterLoops_LagFilter_Reset(&FmgcOuterLoops_DWork.sf_LagFilter_o);
   FmgcOuterLoops_WashoutFilter_l_Reset(&FmgcOuterLoops_DWork.sf_WashoutFilter_b);
   FmgcOuterLoops_LagFilter_e_Reset(&FmgcOuterLoops_DWork.sf_LagFilter_or);
+  FmgcOuterLoops_LagFilter_e_Reset(&FmgcOuterLoops_DWork.sf_LagFilter_flareRate);
   FmgcOuterLoops_DWork.pY_not_empty_a = false;
   FmgcOuterLoops_DWork.pU_not_empty = false;
   FmgcOuterLoops_DWork.wasActive_not_empty = false;
@@ -3138,8 +3139,17 @@ void FmgcOuterLoops::step(const real_T *rtu_in_time_dt, const real_T *rtu_in_tim
     FmgcOuterLoops_DWork.pU) + (2.0 * FmgcOuterLoops_rtP.LeadLagFilter_C3 - *rtu_in_time_dt *
     FmgcOuterLoops_rtP.LeadLagFilter_C4) / rtb_Mod2 * FmgcOuterLoops_DWork.pY_l;
   FmgcOuterLoops_DWork.pU = *rtu_in_data_H_radio_ft;
-  *rty_out_flare_law_H_dot_radio_fpm = std::fmin(std::fmax(external_limit - r, FmgcOuterLoops_rtP.Gain1_Gain_kq *
-    FmgcOuterLoops_DWork.pY_l), r + external_limit);
+  // Fix (personal/fg-flare-rate, fmgc-lab findings F24): the radio height rate is the inertial V/S plus the 1 s lagged
+  // difference to the radio height derivative. The sim's radio altimeters refresh every 80 ms, so the derivative alone
+  // swings by +-400 fpm; the flare law took its time constant from one such sample and flew on the noisy error.
+  {
+    real_T flareRateError = FmgcOuterLoops_rtP.Gain1_Gain_kq * FmgcOuterLoops_DWork.pY_l - *rtu_in_data_H_dot_ft_min;
+    real_T flareRateErrorLagged;
+    FmgcOuterLoops_LagFilter_i(&flareRateError, 1.0, rtu_in_time_dt, &flareRateErrorLagged,
+      &FmgcOuterLoops_DWork.sf_LagFilter_flareRate);
+    *rty_out_flare_law_H_dot_radio_fpm = std::fmin(std::fmax(external_limit - r, *rtu_in_data_H_dot_ft_min +
+      flareRateErrorLagged), r + external_limit);
+  }
   if (!FmgcOuterLoops_DWork.wasActive_not_empty) {
     FmgcOuterLoops_DWork.wasActive = rtb_Compare_ck;
     FmgcOuterLoops_DWork.wasActive_not_empty = true;
