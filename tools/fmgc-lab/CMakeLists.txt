@@ -359,6 +359,58 @@ foreach(variant ${MODEL_VARIANTS})
   endforeach()
 endforeach()
 
+# ---- FAC (readable FAC phase): the generated FacComputer, its replay over any recording (inputs reconstructed from the
+# record, src/fac_drive.h), the readable FAC (readable/fac/) and its differential check.
+set(READABLE_FAC_SOURCES
+  readable/fac/fac.cpp readable/fac/sensors.cpp readable/fac/yaw_functions.cpp readable/fac/characteristic_speeds.cpp
+  readable/fac/alpha_floor.cpp readable/fac/flight_path.cpp readable/fac/output_packing.cpp)
+foreach(variant ${MODEL_VARIANTS})
+  string(REPLACE "=" ";" parts ${variant})
+  list(GET parts 0 name)
+  list(GET parts 1 dir)
+  set(gen_dir ${CMAKE_CURRENT_BINARY_DIR}/gen-${name})
+  add_custom_command(
+    OUTPUT ${gen_dir}/fac_fields.gen.h
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${gen_dir}
+    COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_fields.py ${dir}/FacComputer_types.h
+            ${gen_dir}/fac_fields.gen.h fac_outputs,fac_inputs
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_fields.py ${dir}/FacComputer_types.h)
+
+  add_library(fac_model_${name} STATIC ${dir}/FacComputer.cpp ${dir}/FacComputer_data.cpp ${dir}/look1_binlxpw.cpp
+    ${dir}/look2_binlxpw.cpp ${dir}/look2_pbinlxpw.cpp)
+  target_include_directories(fac_model_${name} PUBLIC ${dir})
+  target_compile_options(fac_model_${name} PRIVATE -O2 -ffp-contract=off)
+
+  add_custom_command(
+    OUTPUT ${gen_dir}/fac_params.gen.h
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${gen_dir}
+    COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_params.py ${gen_dir}/fac_params.gen.h
+            FacComputer=${dir}/FacComputer.h
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_params.py ${dir}/FacComputer.h)
+  add_executable(fac-dump-params-${name} src/dump_fac_params.cpp ${gen_dir}/fac_params.gen.h)
+  target_include_directories(fac-dump-params-${name} PRIVATE ${gen_dir} ${WASM_SRC})
+  target_link_libraries(fac-dump-params-${name} PRIVATE fac_model_${name} -static)
+
+  add_executable(fac-replay-${name} src/fac_replay.cpp ${gen_dir}/fac_fields.gen.h)
+  target_include_directories(fac-replay-${name} PRIVATE ${gen_dir} ${WASM_SRC} src)
+  target_compile_options(fac-replay-${name} PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(fac-replay-${name} PRIVATE fac_model_${name} ZLIB::ZLIB -static)
+
+  add_executable(fac-synth-fdr-${name} src/fac_synth_fdr.cpp)
+  target_include_directories(fac-synth-fdr-${name} PRIVATE ${WASM_SRC} src)
+  target_compile_options(fac-synth-fdr-${name} PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(fac-synth-fdr-${name} PRIVATE fac_model_${name} ZLIB::ZLIB -static)
+
+  add_library(fac_readable_${name} STATIC ${READABLE_FAC_SOURCES})
+  target_include_directories(fac_readable_${name} PUBLIC ${dir} readable readable/fac)
+  target_compile_options(fac_readable_${name} PRIVATE -O2 -ffp-contract=off)
+
+  add_executable(fac-check-${name} src/check_fac.cpp ${gen_dir}/fac_fields.gen.h)
+  target_include_directories(fac-check-${name} PRIVATE ${gen_dir} ${WASM_SRC} src)
+  target_compile_options(fac-check-${name} PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(fac-check-${name} PRIVATE fac_readable_${name} fac_model_${name} ZLIB::ZLIB -static)
+endforeach()
+
 # Control-law checks (Phase 3): an instrumented copy of the stock model (outer-loop call hooks and probes), never the
 # repo's model/ folder. Built when a variant named "stock" exists.
 foreach(variant ${MODEL_VARIANTS})
@@ -503,6 +555,23 @@ if(FMGC_FUZZ)
   target_compile_options(fadec-cov-check PRIVATE -O2 -ffp-contract=off)
   target_link_libraries(fadec-cov-check PRIVATE fadec_readable_cov fadec_model_cov ZLIB::ZLIB -fprofile-instr-generate
     -static)
+
+  # FAC: the same for FacComputer.cpp and the readable FAC (scripts/check-fac-corpus.sh with COVERAGE=1). The lookup
+  # helpers are not instrumented; the corpus driver's reference FACs (src/fac_drive.h) use the instrumented model too.
+  add_library(fac_model_rest OBJECT ${fuzz_dir}/look1_binlxpw.cpp ${fuzz_dir}/look2_binlxpw.cpp
+    ${fuzz_dir}/look2_pbinlxpw.cpp ${fuzz_dir}/FacComputer_data.cpp)
+  target_include_directories(fac_model_rest PUBLIC ${fuzz_dir})
+  target_compile_options(fac_model_rest PRIVATE -O2 -ffp-contract=off)
+  add_library(fac_model_cov STATIC ${fuzz_dir}/FacComputer.cpp $<TARGET_OBJECTS:fac_model_rest>)
+  target_include_directories(fac_model_cov PUBLIC ${fuzz_dir})
+  target_compile_options(fac_model_cov PRIVATE -O2 -ffp-contract=off -fprofile-instr-generate -fcoverage-mapping)
+  add_library(fac_readable_cov STATIC ${READABLE_FAC_SOURCES})
+  target_include_directories(fac_readable_cov PUBLIC ${fuzz_dir} readable readable/fac)
+  target_compile_options(fac_readable_cov PRIVATE -O2 -ffp-contract=off -fprofile-instr-generate -fcoverage-mapping)
+  add_executable(fac-cov-check src/check_fac.cpp ${fuzz_gen}/fac_fields.gen.h)
+  target_include_directories(fac-cov-check PRIVATE ${fuzz_gen} ${WASM_SRC} src)
+  target_compile_options(fac-cov-check PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(fac-cov-check PRIVATE fac_readable_cov fac_model_cov ZLIB::ZLIB -fprofile-instr-generate -static)
 endif()
 
 # Round trip of the personal FDR format with the FCU (3209001): writes a synthetic file and reads it back.

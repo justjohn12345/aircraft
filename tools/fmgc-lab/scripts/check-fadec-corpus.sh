@@ -44,8 +44,8 @@ run() {
   while [ "$(jobs -r | wc -l)" -ge "$jobs" ]; do wait -n; done
   LLVM_PROFILE_FILE="$covdir/raw/cov-%4m.profraw" "$bin" "$@" > "$out/$name.txt" 2>&1 &
 }
-is_fadec() {  # interface version 3209004 (with the FADEC model record)?
-  python3 -c "import gzip,struct,sys; sys.exit(0 if struct.unpack('<Q', gzip.open(sys.argv[1]).read(8))[0] == 3209004 else 1)" "$1"
+is_fadec() {  # interface version 3209004 or 3209005 (with the FADEC model record)?
+  python3 -c "import gzip,struct,sys; sys.exit(0 if struct.unpack('<Q', gzip.open(sys.argv[1]).read(8))[0] in (3209004, 3209005) else 1)" "$1"
 }
 fadec_files=()
 files=("$corpus"/*.fdr)

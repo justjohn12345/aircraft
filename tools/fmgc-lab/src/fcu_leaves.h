@@ -79,13 +79,29 @@ inline std::string showFcuLeaf(const FcuLeaf& l, const void* p) {
   return buf;
 }
 
+/** True when a float or double leaf holds a NaN in both. */
+inline bool bothNan(const FcuLeaf& l, const char* a, const char* b) {
+  if (l.kind != FieldKind::Float) return false;
+  if (l.size == 4) {
+    float x, y;
+    std::memcpy(&x, a, 4);
+    std::memcpy(&y, b, 4);
+    return x != x && y != y;
+  }
+  double x, y;
+  std::memcpy(&x, a, 8);
+  std::memcpy(&y, b, 8);
+  return x != x && y != y;
+}
+
 /**
  * Compares `got` with `expected` leaf by leaf; counts mismatches (first one: step, time, values). Optionally records
- * coverage of the expected values. Returns the number of differing leaves.
+ * coverage of the expected values. Returns the number of differing leaves. `nanEqual`: two NaNs match whatever their
+ * sign and payload (which x86 takes from whichever operand the compiler put first in a commutative operation).
  */
 template <typename S>
 int compareFcuLeaves(std::vector<FcuLeaf>& leaves, const S& expected, const S& got, long step, double time,
-                     bool coverage) {
+                     bool coverage, bool nanEqual = false) {
   const char* e = reinterpret_cast<const char*>(&expected);
   const char* g = reinterpret_cast<const char*>(&got);
   int n = 0;
@@ -97,7 +113,7 @@ int compareFcuLeaves(std::vector<FcuLeaf>& leaves, const S& expected, const S& g
       std::memcpy(l.prev, e + l.offset, l.size);
       l.havePrev = true;
     }
-    if (std::memcmp(e + l.offset, g + l.offset, l.size) != 0) {
+    if (std::memcmp(e + l.offset, g + l.offset, l.size) != 0 && !(nanEqual && bothNan(l, e + l.offset, g + l.offset))) {
       if (l.firstStep < 0) {
         l.firstStep = step;
         l.firstTime = time;

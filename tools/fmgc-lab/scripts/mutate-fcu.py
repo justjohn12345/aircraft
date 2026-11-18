@@ -17,6 +17,10 @@ Mutation test of the FCU differential check: does fcu-check notice when the read
 Usage: scripts/mutate-fcu.sh (list + build in the container + test on the host, JOBS=4)
 UNIT=fadec: the same for the readable FADEC (readable/fadec/, fadec-check-stock, build/mutants-fadec; also mutates the
 bit numbers of the ECU bus packing): scripts/mutate-fadec.sh
+UNIT=fac: the readable FAC (readable/fac/, fac-check-stock, build/mutants-fac): also the integer constants (ARINC bit
+numbers, + 1); not the table rows (lines with 4 or more numbers) or the buffet table header: scripts/mutate-fac.sh
+BUILD_JOBS: parallel compiles per mutant build (default 4). MUTANT_TIMEOUT: seconds per run before a hanging mutant
+counts as caught (default 600).
 """
 import json
 import os
@@ -49,12 +53,14 @@ OPS = [
 NUM = re.compile(r'(?<![\w.])(\d+\.\d+)(F?)\b')
 BIT = re.compile(r'(bit\((?:[\w.]+), )(\d+)(\))')
 PACKED_BIT = re.compile(r'(\.bit\()(\d+)(,)')  # FADEC ECU bus packing
+INT_CONST = re.compile(r'(?<![\w.])(\d+)(?![\w.])')  # FAC: integer constants of `constexpr int` lines
+BUILD_JOBS = os.environ.get('BUILD_JOBS', '4')
 
 
 def mutants():
     out = []
     for name in sorted(os.listdir(SRC)):
-        if not (name.endswith('.cpp') or name.endswith('.h')):
+        if not (name.endswith('.cpp') or name.endswith('.h')) or name == 'vls_buffet_table.h':
             continue
         path = os.path.join(SRC, name)
         for i, line in enumerate(open(path).read().split('\n')):
@@ -62,13 +68,16 @@ def mutants():
             s = code.strip()
             if not s or s.startswith('#') or s.startswith('*') or s.startswith('/*'):
                 continue
-            if name.endswith('.h') and 'constexpr' not in code and name != 'fadec_blocks.h':
-                continue  # headers: only the named constants (and the FADEC's block library)
+            if name.endswith('.h') and 'constexpr' not in code and name not in ('fadec_blocks.h', 'fac_blocks.h'):
+                continue  # headers: only the named constants (and the FADEC's / FAC's block library)
             for pat, rep, desc in OPS:
                 for m in re.finditer(pat, code):
                     new = line[:m.start()] + rep + line[m.end():]
                     out.append({'file': name, 'line': i, 'old': line, 'new': new, 'desc': desc})
-            for m in NUM.finditer(code):
+            nums = list(NUM.finditer(code))
+            if UNIT == 'fac' and len(nums) >= 4:
+                nums = []  # table rows: covered by the corpus replay, too many mutants
+            for m in nums:
                 v = float(m.group(1))
                 nv = v * 1.5 if v != 0 else 1.0
                 new = line[:m.start()] + repr(nv) + m.group(2) + line[m.end():]
@@ -78,6 +87,11 @@ def mutants():
                 nb = int(m.group(2)) + 1
                 new = line[:m.start(2)] + str(nb) + line[m.end(2):]
                 out.append({'file': name, 'line': i, 'old': line, 'new': new, 'desc': f'bit {m.group(2)}->{nb}'})
+            if UNIT == 'fac' and 'constexpr int' in code:
+                for m in INT_CONST.finditer(code):
+                    nb = int(m.group(1)) + 1
+                    new = line[:m.start(1)] + str(nb) + line[m.end(1):]
+                    out.append({'file': name, 'line': i, 'old': line, 'new': new, 'desc': f'{m.group(1)}->{nb}'})
     return out
 
 
@@ -106,7 +120,7 @@ def cmd_build():
             lines[m['line']] = m['new']
             try:
                 open(path, 'w').write('\n'.join(lines))
-                r = subprocess.run(['cmake', '--build', os.path.join(HERE, 'build', 'cmake'), '-j', '4', '--target',
+                r = subprocess.run(['cmake', '--build', os.path.join(HERE, 'build', 'cmake'), '-j', BUILD_JOBS, '--target',
                                     TARGET], capture_output=True, text=True)
                 binary = os.path.join(OUT, f'm{k:04d}')
                 if r.returncode == 0:
@@ -118,7 +132,7 @@ def cmd_build():
                 open(path, 'w').write(original)
             log.flush()
     finally:
-        subprocess.run(['cmake', '--build', os.path.join(HERE, 'build', 'cmake'), '-j', '4', '--target', TARGET],
+        subprocess.run(['cmake', '--build', os.path.join(HERE, 'build', 'cmake'), '-j', BUILD_JOBS, '--target', TARGET],
                        capture_output=True)
         subprocess.run(['cp', os.path.join(HERE, 'build', 'cmake', TARGET), os.path.join(HERE, 'build')])
 
@@ -137,13 +151,28 @@ if UNIT == 'fadec':
         ['--synthetic', '--script', '2', '--lever', '2', '--athr', '2', '--sim', '2'],
     ]
 
+if UNIT == 'fac':
+    CONFIGS = [
+        [], ['--script', '1'], ['--failures', '1'], ['--discretes', '1'], ['--power', '1'], ['--sim', '1'],
+        ['--script', '2', '--failures', '2', '--discretes', '2', '--power', '2', '--sim', '2'],
+    ]
+
+
+TIMEOUT = float(os.environ.get('MUTANT_TIMEOUT', '600'))  # a mutant that hangs (e.g. an endless search loop) is caught
+
 
 def caught(binary, files):
     for f in files:
         for c in CONFIGS:
-            r = subprocess.run([binary] + c + [f], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            try:
+                r = subprocess.run([binary] + c + [f], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                   timeout=TIMEOUT)
+            except subprocess.TimeoutExpired:
+                return f'{os.path.basename(f)} {" ".join(c)} (hangs)'
             if r.returncode == 1:
                 return f'{os.path.basename(f)} {" ".join(c)}'
+            if r.returncode != 0:  # a crash (e.g. an out-of-bounds table read) is caught too
+                return f'{os.path.basename(f)} {" ".join(c)} (exit {r.returncode})'
     return None
 
 
@@ -151,6 +180,14 @@ def cmd_test(jobs):
     ms = json.load(open(os.path.join(OUT, 'list.json')))
     files = sorted(os.path.join(CORPUS, f) for f in os.listdir(CORPUS) if f.endswith('.fdr'))
     quick = [files[i] for i in (len(files) - 4, len(files) // 2, 3) if 0 <= i < len(files)]
+    if UNIT == 'fac':
+        # FAC runs take seconds each: three short recordings first (the scripted tour brings the flight phases), then
+        # four more (two long flights) for the survivors, not the whole corpus
+        def pick(names):
+            return [f for f in files if os.path.basename(f)[:19] in names] or files[:len(names)]
+        quick = pick({'2026-11-14-13-57-13', '2026-11-16-01-07-03', '2026-11-11-00-25-42'})
+        files = quick + pick({'2026-11-08-01-16-09', '2026-11-14-14-07-54', '2026-11-16-15-22-40',
+                              '2026-11-09-23-30-14'})
 
     def one(k):
         b = os.path.join(OUT, f'm{k:04d}')
