@@ -1,7 +1,8 @@
 # fmgc-lab
 
 Native (no MSFS) build of the generated A32NX FMGC (`FmgcComputer` + `FmgcOuterLoops`) with a flight data recorder
-replay harness. Phase 0 of the FMGC reverse-engineering plan (`~/fmgc-lab/PLAN.md`).
+replay harness. Phase 0 of the FMGC reverse-engineering plan (`~/fmgc-lab/PLAN.md`). The FCU (`FcuComputer`) and the
+FADEC (`FadecComputer`) have the same treatment: see "FCU" and "FADEC" at the end.
 
 **Findings:** every bug and FCOM difference found so far, with status, is indexed in `docs/findings.md`.
 
@@ -298,3 +299,90 @@ Results (2026-11-15): 0 mismatching frames over 18.5 M native frames (6.15 M pla
 12.3 M wasm frames; the self-test catches a single flipped bit in a float, a bool, an enum and an SSM as exactly one
 mismatching frame. Cost per FMGC and frame: native 1.93 µs (readable step 1.78 + comparison 0.15), wasm under V8
 2.23 µs, against about 1.9 µs for the generated step; `fbw.wasm` +163 kB.
+
+## FCU: replay, readable FCU, differential check
+
+The generated A32NX FCU (`FcuComputer`) gets the same treatment: a native build per model variant
+(`fcu_model_<variant>`; the FCU model is identical in every variant so far), a replay of the personal recording format
+3209001 against the recorded FCU outputs, a readable rewrite in `readable/fcu/` (namespace `fcu::readable`) that is
+bit-exact against the generated code, and a differential checker. Spec, inputs, outputs, memories, quirks, FCOM checks:
+`docs/fcu.md`; findings U1–U11 in `docs/findings.md` section 7; parameters `docs/params-FcuComputer.txt`.
+
+```sh
+TARGETS='fcu-check-stock fcu-replay-stock fcu-synth-fdr-stock' JOBS=4 scripts/build.sh   # just the FCU tools
+build/fcu-replay-stock [--from N] [--to N] [--sync] file.fdr      # 3209001: generated FCU vs recorded outputs
+build/fcu-check-stock [--synthetic] [--fmgc2 opp|copy|invalid|ncd|swapped] [--reconstruct] [--script SEED] \
+  [--panel SEED] [--priority SEED] [--bus SEED] [--sim SEED] [--power SEED] [--warm FILE] file.fdr
+JOBS=4 [SEEDS=2] scripts/check-fcu-corpus.sh                     # every recording x configs, then fcu-replay on 3209001
+FCU_ONLY=1 scripts/build-fuzz.sh && COVERAGE=1 JOBS=4 scripts/check-fcu-corpus.sh   # + clang coverage
+JOBS=4 scripts/mutate-fcu.sh                                     # mutation test of the checker
+build/fcu-synth-fdr-stock [--script SEED] [--corrupt FRAME] [--from FRAME] in.fdr out.fdr   # make a 3209001 file
+```
+
+- `fcu-replay-<variant>` (`src/fcu_replay.cpp`): steps the generated FCU with each 3209001 frame's recorded FCU inputs
+  and compares logic, discrete and bus outputs field by field, bit-exact (counts, first frame and values per field,
+  mismatch episodes, how many follow an active-pause gap). On a 3200006 file it says there is no FCU data and exits 0.
+  `--sync`: for a file that starts with the FCU already running, the generated memories are first set from frame 0's
+  recorded outputs (approximate for dash timers and pulses in progress; converges once they expire).
+- `fcu-check-<variant>` (`src/check_fcu.cpp`): generated and readable FCU in lockstep, free-running, every leaf of
+  `fcu_outputs` (357) and 30 hidden memories bit-exact each step; per-field mismatch counts and the first mismatch; exit
+  1 on any mismatch. Inputs (`src/fcu_drive.h`): the recorded FCU inputs of a 3209001 file, or a synthetic drive from
+  any recording: FMGC 1's previous-frame A bus and discretes, FMGC 2's bus and discretes as FMGC 1 received them
+  (`--fmgc2` variants), the recorded time; `--reconstruct` infers the panel actions from the recorded FCU bus (knob
+  pushes/pulls and pbs from the pulse bits, EFIS selectors from the EIS words, turns/presses to follow the recorded
+  values: selected values then match the recorded bus on >99.8 % of frames, printed as `fidelity` lines). Seeded
+  injectors (`src/fcu_scenarios.h`): scripted tour of every control, random panel actions, AP/FD/A/THR priority
+  episodes, FMGC bus episodes (random SSM/bit/value on every word the FCU reads, end of TCAS into V/S, level-off push,
+  SRS/TCAS on FMGC 1, Mach mode, managed/selected, presets), sim flags/dt/time steps, power drops.
+- `fcu-synth-fdr-<variant>` (`src/fcu_synth_fdr.cpp`): writes a 3209001 file from any recording with the generated FCU
+  (synthetic drive + reconstruction), to exercise the 3209001 paths before real recordings exist.
+
+Results (2026-11-15, 25 recordings, all 3200006): `check-fcu-corpus.sh` 650 runs, 87.4 M steps (85.0 M running),
+14,692 restarts, 0 mismatches; step time generated 0.42 us, readable 0.21 us. Coverage of `FcuComputer.cpp`: 98.2 % of
+branches (542/552; the 10 missing sides are unreachable), 99.1 % of lines; readable FCU 96.7-100 % of branches. Mutation test: 371 of 383 mutants caught,
+the 12 survivors equivalent or near-equivalent (`docs/fcu.md`). `fcu-replay` on synthesized 3209001 files: 0
+mismatches over 59,510 frames; a corrupted output field is reported. No real 3209001 recording yet: when one exists,
+`build/fcu-replay-stock <file>` proves the harness reproduces the sim, and `check-fcu-corpus.sh` adds recorded-input
+runs for it automatically.
+
+## FADEC: replay, readable FADEC, differential check
+
+The generated A32NX FADEC (`FadecComputer`, two instances) the same way: a native build per model variant
+(`fadec_model_<variant>`; identical in every variant so far), a replay of the personal recording format 3209004 (both
+FADECs' model inputs and outputs, branch personal/fdr-fadec), a readable rewrite in `readable/fadec/` (namespace
+`fadec::readable`) that is bit-exact against the generated code, and a differential checker. Spec, inputs, outputs,
+memories, FCOM checks: `docs/fadec.md`; findings E1-E9 in `docs/findings.md` section 8; parameters
+`docs/params-FadecComputer.txt`.
+
+```sh
+TARGETS='fadec-check-stock fadec-replay-stock fadec-synth-fdr-stock' JOBS=4 scripts/build.sh   # just the FADEC tools
+build/fadec-replay-stock [--from N] [--to N] [--sync] file.fdr    # 3209004: generated FADECs vs recorded outputs
+build/fadec-check-stock [--synthetic] [--script SEED] [--lever SEED] [--athr SEED] [--sim SEED] [--warm FILE] \
+  [--trace T0 T1] file.fdr
+JOBS=4 [SEEDS=2] scripts/check-fadec-corpus.sh                   # every recording x configs, then fadec-replay on 3209004
+FADEC_ONLY=1 scripts/build-fuzz.sh && COVERAGE=1 JOBS=4 scripts/check-fadec-corpus.sh   # + clang coverage
+JOBS=4 scripts/mutate-fadec.sh                                   # mutation test of the checker
+build/fadec-synth-fdr-stock [--script SEED] [--athr SEED] [--corrupt FRAME] in.fdr out.fdr   # make a 3209004 file
+```
+
+- `fadec-replay-<variant>` (`src/fadec_replay.cpp`): steps both generated FADECs with each 3209004 frame's recorded
+  inputs and compares `data_computed`, `output` and the ECU bus of both, and FADEC 1's stock record part, bit-exact. On an
+  older file it says there is no FADEC model data and exits 0.
+- `fadec-check-<variant>` (`src/check_fadec.cpp`): generated and readable FADECs (engine 1 and 2) in lockstep,
+  free-running, every leaf of `athr_out` (112 per FADEC) and 17 hidden memories per FADEC bit-exact each step; exit 1 on
+  any mismatch. Inputs (`src/fadec_drive.h`): the recorded inputs of a 3209004 file, or a synthetic drive from any
+  recording (TLA, N1, on ground, engine running, instinctive disconnect and FCU bus from the record; thrust limits
+  learned from FADEC 1's recorded outputs; commanded N1 from a static plant; `fidelity` lines compare generated FADEC 1
+  with the recorded one). Seeded injectors (`src/fadec_scenarios.h`): scripted tour, random lever, A/THR and sim
+  episodes. Also prints event counts (control lost by cause, thrust lock, A/THR disabled) and the recorded thrust lock
+  episodes.
+- `fadec-synth-fdr-<variant>` (`src/fadec_synth_fdr.cpp`): writes a 3209004 file from any recording with the generated
+  FADECs, to exercise the 3209004 paths before real recordings exist.
+
+Results (2026-11-17, 29 recordings: 25 x 3200006, one each 3209001/3209002, two 3209003): `check-fadec-corpus.sh` 436
+runs, 62.9 M steps x 2 FADECs, 0 mismatches; step time generated 0.075 us, readable 0.050 us. Coverage of
+`FadecComputer.cpp`: 94.8 % of branches (182/192; the 10 missing sides are unreachable), 97.4 % of lines; readable FADEC
+100 % of branches but one unreachable side. Mutation test: 148 of 171 mutants caught, the 23 survivors equivalent (`docs/fadec.md`). `fadec-replay` on synthesized 3209004 files: 0 mismatches over
+494,560 frames; a corrupted output field is reported. No real 3209004 recording yet: when one exists,
+`build/fadec-replay-stock <file>` proves the harness reproduces the sim, and `check-fadec-corpus.sh` adds recorded-input
+runs for it automatically.
