@@ -84,7 +84,7 @@ constexpr double kFlareVsLagC1 = 0.033333333333333333;  // rad/s (30 s)
 constexpr double kFlareMaxTerrainSlope = 0.029999999999999999;
 constexpr double kFlareRaRateC1 = 15, kFlareRaRateC2 = 0, kFlareRaRateC3 = 1, kFlareRaRateC4 = 15;
 constexpr double kFtSToFpm = 60;
-constexpr double kFlareRateCorrectionC1 = 1;  // fix: rad/s, lag on (radio height rate - V/S)
+constexpr double kFlareRateCorrectionC1 = 0.2;  // fix: rad/s (5 s), lag on (radio height rate - V/S)
 // V/S command: exponential flare H_dot = -(RA + bias)/tau, set at flare engagement so that it starts at the current
 // radio height rate and reaches -2.5 ft/s at RA = 0.
 constexpr double kFlareTouchdownVsFtS = 2.5;
@@ -182,9 +182,9 @@ void VerticalLaws::computePath(const ap_laws_output& in, LawResults& out) {
   double slopeFpm = kKnToFpm * d.V_gnd_kn * kFlareMaxTerrainSlope;
   const double raRate =
       fl.radioRate.update(d.H_radio_ft, kFlareRaRateC1, kFlareRaRateC2, kFlareRaRateC3, kFlareRaRateC4, dt);
-  // Fix (= personal/fg-flare-rate, findings F24): the inertial V/S plus the 1 s lagged difference to the radio height
-  // derivative. The sim's radio altimeters refresh every 80 ms, so the derivative alone swings by ±400 fpm; stock used
-  // it directly, taking the flare time constant from one noisy sample.
+  // Fix (= personal/fg-flare-rate, findings F24): the inertial V/S plus the 5 s lagged difference to the radio height
+  // derivative. The sim's radio altimeters refresh every 80 ms, so the derivative alone swings by ±400 fpm, and terrain
+  // before the threshold adds ±250 fpm bumps; stock used it directly, taking the flare time constant from one sample.
   const double rateCorrection = fl.rateCorrectionLag.update(kFtSToFpm * raRate - d.H_dot_ft_min, kFlareRateCorrectionC1, dt);
   const double hDotRadio =
       std::fmin(std::fmax(vsLagged - slopeFpm, d.H_dot_ft_min + rateCorrection), slopeFpm + vsLagged);
