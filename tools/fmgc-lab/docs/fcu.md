@@ -275,8 +275,11 @@ and per EFIS panel the filter, FD, LS, STD/QNH/QFE and both baro values: 30 memo
   the +-180 deg wrap limits of the HDG/TRK switch, which cannot change the `< 5 deg` test) and 1 near-equivalent (the
   post-TCAS "RA inhibited, not up" value 0 -> 1 rounds back to 0 in V/S; it differs only in TRK-FPA with the priority
   FMGC 2 in TCAS and FMGC 1 not).
-- `fcu-replay-<variant>` against recorded outputs: no 3209001 recording exists yet; checked on synthesized 3209001
-  files (`fcu-synth-fdr`): 0 mismatches over 59,510 frames, and a single corrupted output field is reported.
+- `fcu-replay-<variant>` against recorded outputs: checked on synthesized 3209001 files (`fcu-synth-fdr`): 0
+  mismatches over 59,510 frames, and a single corrupted output field is reported. Real recordings (2026-11-18):
+  2026-11-16-23-26-16 (3209003, 183,895 frames) and 2026-11-17-21-06-05 (3209004, 183,122 frames) replay with 0
+  mismatches in all 150 recorded fields, and `fcu-check` on their recorded inputs gives 0 mismatches in 357 fields and
+  30 hidden memories.
   `--sync` (a file that starts with the FCU running) converges once the dash timers in progress have expired.
 
 ### Rerun
