@@ -411,6 +411,40 @@ foreach(variant ${MODEL_VARIANTS})
   target_link_libraries(fac-check-${name} PRIVATE fac_readable_${name} fac_model_${name} ZLIB::ZLIB -static)
 endforeach()
 
+# ---- FAC shadow mode in the sim (fbw_a320/src/shadow/FacShadow) ---------------------------------------------------
+# fbw_a320/build.sh compiles readable/fac/*.cpp; keep READABLE_FAC_SOURCES equal to that glob.
+file(GLOB fac_all RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/readable/fac/*.cpp)
+set(fac_lib ${READABLE_FAC_SOURCES})
+list(SORT fac_all)
+list(SORT fac_lib)
+if(NOT fac_all STREQUAL fac_lib)
+  message(FATAL_ERROR "READABLE_FAC_SOURCES differs from readable/fac/*.cpp (what the wasm build compiles)")
+endif()
+
+# The committed leaf table of the FAC shadow checker must match the repo's types header.
+add_custom_command(
+  OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/fac-shadow-leaves.checked
+  COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_leaf_table.py ${WASM_SRC}/model/FacComputer_types.h
+          ${UNIT_SHADOW_SRC}/FacOutputLeaves.gen.h --root fac_outputs --namespace fac_shadow --check
+  COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_CURRENT_BINARY_DIR}/fac-shadow-leaves.checked
+  DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_leaf_table.py ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_fields.py
+          ${WASM_SRC}/model/FacComputer_types.h ${UNIT_SHADOW_SRC}/FacOutputLeaves.gen.h)
+add_custom_target(fac-shadow-leaves-check ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/fac-shadow-leaves.checked)
+
+# Native driver and test of the sim's FAC shadow checker (the same sources the wasm module compiles).
+foreach(variant ${MODEL_VARIANTS})
+  string(REPLACE "=" ";" parts ${variant})
+  list(GET parts 0 name)
+  set(gen_dir ${CMAKE_CURRENT_BINARY_DIR}/gen-${name})
+  add_executable(fac-shadow-test-${name} src/fac_shadow_test.cpp ${UNIT_SHADOW_SRC}/ShadowChecker.cpp
+    ${UNIT_SHADOW_SRC}/FacShadow.cpp ${gen_dir}/fac_fields.gen.h)
+  add_dependencies(fac-shadow-test-${name} fac-shadow-leaves-check)
+  target_include_directories(fac-shadow-test-${name} PRIVATE ${gen_dir} ${WASM_SRC} ${UNIT_SHADOW_SRC} src
+    ${CMAKE_CURRENT_SOURCE_DIR})
+  target_compile_options(fac-shadow-test-${name} PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(fac-shadow-test-${name} PRIVATE fac_readable_${name} fac_model_${name} ZLIB::ZLIB -static)
+endforeach()
+
 # Control-law checks (Phase 3): an instrumented copy of the stock model (outer-loop call hooks and probes), never the
 # repo's model/ folder. Built when a variant named "stock" exists.
 foreach(variant ${MODEL_VARIANTS})
