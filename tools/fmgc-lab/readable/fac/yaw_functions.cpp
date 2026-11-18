@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0
 
-// The FAC's yaw damper, rudder trim and rudder travel limiter (generated FacComputer.cpp 670-689, 1102-1222). See
+// The FAC's yaw damper, rudder trim and rudder travel limiter (generated FacComputer.cpp 666-681, 1095-1219). See
 // yaw_functions.h.
 
 #include "yaw_functions.h"
@@ -26,7 +26,7 @@ bool bit(const base_arinc_429& w, int n) { return a429::bit(w, n) != 0U; }
 }  // namespace
 
 YawEngagement YawEngagement::compute(const base_fac_discrete_inputs& d) {
-  // 671-689: each function engages when it can and this FAC has priority (FAC 1 always; FAC 2 when FAC 1's function
+  // 666-681: each function engages when it can and this FAC has priority (FAC 1 always; FAC 2 when FAC 1's function
   // is not engaged)
   YawEngagement e{};
   e.yawDamperCanEngage = d.yaw_damper_has_hyd_press && d.fac_engaged_from_switch;
@@ -58,12 +58,12 @@ void RudderTrim::restart() {
 double RudderTrim::update(const fac_inputs& in, const Sensors& s, bool engaged) {
   const base_fac_discrete_inputs& d = in.discrete_inputs;
   const base_fac_bus_inputs& b = in.bus_inputs;
-  // 1102-1116: the RESET pushbutton (ignored with an AP engaged) latches a trim reset, cleared by either trim switch
+  // 1095-1112: the RESET pushbutton (ignored with an AP engaged) latches a trim reset, cleared by either trim switch
   // or an AP engagement (clear wins)
   const bool resetPressed = resetButton_.update(d.rudder_trim_reset_button && !s.anyApEngaged, true);
   resetLatch_.update(resetPressed, d.rudder_trim_switch_left || d.rudder_trim_switch_right || s.anyApEngaged);
 
-  // 1117-1146: trim rate. With an AP engaged: above 200 ft (the own FMGC's radio height value, whatever its SSM) the
+  // 1113-1146: trim rate. With an AP engaged: above 200 ft (the own FMGC's radio height value, whatever its SSM) the
   // ELAC yaw damper order x 1/15 (the first ELAC in normal law, healthy), limited to 1.7 deg/s; below, 0. Without: the
   // switches, left (positive) first.
   double rate;
@@ -91,7 +91,7 @@ double RudderTrim::update(const fac_inputs& in, const Sensors& s, bool engaged) 
   }
   const double increment = 1.0 * rate * in.time.dt;
 
-  // 1147-1163: the integrator is reloaded while a reset is latched or the trim is not engaged (to the measured
+  // 1147-1165: the integrator is reloaded while a reset is latched or the trim is not engaged (to the measured
   // position) and on the first frame after a restart; when engaged that reload value is 0 (a reset trims back to 0,
   // and so does a FAC restart). Limited to +-20 deg.
   reload_ = resetLatch_.q || !engaged || reload_;
@@ -99,9 +99,9 @@ double RudderTrim::update(const fac_inputs& in, const Sensors& s, bool engaged) 
     integrator_ = (!engaged ? in.analog_inputs.rudder_trim_position_deg : 0.0) - increment;
   }
   integrator_ = blocks::limit(integrator_ + increment, -kTrimRangeDeg, kTrimRangeDeg);
-  reload_ = false;  // icLoad is cleared at the end of the frame (1585); nothing reads it in between
+  reload_ = false;  // icLoad is cleared at the end of the frame (1562); nothing reads it in between
 
-  // 1165-1168: the order moves to the integrator at 2 deg/s; not engaged: the measured position
+  // 1166-1169: the order moves to the integrator at 2 deg/s; not engaged: the measured position
   return order_.update(integrator_, kTrimOrderRateDegS, kTrimOrderRateDegS, in.time.dt,
                        in.analog_inputs.rudder_trim_position_deg, !engaged);
 }
@@ -114,7 +114,7 @@ void YawDamper::reset() {
 double YawDamper::update(const fac_inputs& in, const Sensors& s, bool engaged) {
   const base_fac_discrete_inputs& d = in.discrete_inputs;
   const base_fac_bus_inputs& b = in.bus_inputs;
-  // 1172-1206: the ELAC's yaw damper order when an ELAC with bits 20 and 26 is healthy (ELAC 1 first), else the
+  // 1170-1202: the ELAC's yaw damper order when an ELAC with bits 20 and 26 is healthy (ELAC 1 first), else the
   // alternate law: the washed-out yaw rate (high pass, 20 rad/s), gain 1, +-5 deg. The washout runs every frame.
   const bool elac1 = bit(b.elac_1_bus.discrete_status_word_1, kElacYawDamperBit) && d.elac_1_healthy &&
                      bit(b.elac_1_bus.discrete_status_word_1, kElacNormalLawBit);
@@ -128,7 +128,7 @@ double YawDamper::update(const fac_inputs& in, const Sensors& s, bool engaged) {
     order = blocks::limit(1.0 * washedOutRate, -kAlternateYawDamperLimitDeg, kAlternateYawDamperLimitDeg);
   }
   order = blocks::limit(order, -kYawDamperLimitDeg, kYawDamperLimitDeg);
-  // 1207-1209: 40 deg/s; not engaged: the measured position
+  // 1203-1206: 40 deg/s; not engaged: the measured position
   return order_.update(order, kYawDamperRateDegS, kYawDamperRateDegS, in.time.dt,
                        in.analog_inputs.yaw_damper_position_deg, !engaged);
 }
@@ -136,7 +136,7 @@ double YawDamper::update(const fac_inputs& in, const Sensors& s, bool engaged) {
 void TravelLimiter::reset() { order_.reset(); }
 
 double TravelLimiter::update(const fac_inputs& in, const Sensors& s, bool engaged) {
-  // 1210-1222: the travel limit for the CAS (ADR), 0..30 deg, at 1 deg/s; not engaged: the measured position
+  // 1207-1219: the travel limit for the CAS (ADR), 0..30 deg, at 1 deg/s; not engaged: the measured position
   const double limit = blocks::limit(blocks::lookup1(static_cast<double>(s.adr.casKn), kTravelLimitCasKn, kTravelLimitDeg),
                                      0.0, kTravelLimitMaxDeg);
   return order_.update(limit, kTravelLimitRateDegS, kTravelLimitRateDegS, in.time.dt,

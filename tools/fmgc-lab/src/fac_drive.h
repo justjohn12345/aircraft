@@ -363,14 +363,9 @@ class FacInputDrive {
     for (int k = 1; k <= 5; k++) {
       if (bitOf(o.discrete_word_5, 10 + k)) config = k;
     }
-    switch (config) {
-      case 0: setBit(w, 17, true); break;
-      case 1: setBit(w, 18, true), setBit(w, 26, true); break;
-      case 2: setBit(w, 18, true); break;
-      case 3: setBit(w, 19, true); break;
-      case 4: setBit(w, 20, true); break;
-      default: setBit(w, 21, true); break;
-    }
+    static const int kConfigBit[6] = {17, 18, 18, 19, 20, 21};
+    setBit(w, kConfigBit[config], true);
+    setBit(w, 26, config == 1);
     s.slat_flap_actual_position_word = {kNo, o.discrete_word_1.Data};
     s.slat_actual_position_deg = {kNo, o.fac_slat_angle_deg.Data};
     s.flap_actual_position_deg = {kNo, o.fac_flap_angle_deg.Data};

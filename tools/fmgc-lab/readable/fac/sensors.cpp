@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0
 
-// The FAC's input conditioning (generated FacComputer.cpp 392-718). See sensors.h.
+// The FAC's input conditioning (generated FacComputer.cpp 426-665). See sensors.h.
 
 #include "sensors.h"
 
@@ -12,7 +12,7 @@ namespace {
 
 namespace a429 = blocks::a429;
 
-/** The configuration bits of the SFCC slat/flap system status word (BitfromLabel2..7, 459-470). */
+/** The configuration bits of the SFCC slat/flap system status word (BitfromLabel2..7, 494-505). */
 constexpr int kSfccConf0Bit = 17, kSfccConf1Bit = 18, kSfccConf2Bit = 19, kSfccConf3Bit = 20, kSfccConfFullBit = 21;
 constexpr int kSfccConf1FlapsBit = 26;  // with bit 18: CONF 1 (slats only); without: CONF 1+F
 /** The SFCC actual position word bit compared with the slat-extended discrete (BitfromLabel_bit_m). */
@@ -47,12 +47,12 @@ void InputConditioning::reset() {
 void InputConditioning::updateGear(const fac_inputs& in) {
   const base_lgciu_bus& lgciu = in.bus_inputs.lgciu_own_bus;
   const base_arinc_429& oppWord5 = in.bus_inputs.fac_opp_bus.discrete_word_5;
-  // 392-399: the own LGCIU is valid while its word 1 is not failed and its nose gear bit has not disagreed with the
+  // 426-431: the own LGCIU is valid while its word 1 is not failed and its nose gear bit has not disagreed with the
   // nose gear discrete for 1 s (a falling-edge confirm: valid again as soon as they agree)
   const bool noseAgrees = in.discrete_inputs.nose_gear_pressed == bit(lgciu.discrete_word_2, kLgciuNoseBit);
   const bool agreed = noseGearAgree_.update(noseAgrees, in.time.dt, false, kLgciuDisagreeSeconds);
   const bool ownValid = a429::isNotFailed(lgciu.discrete_word_1) && agreed;
-  // 408-413: the opposite FAC's copy is usable when it reports its own LGCIU valid (and the word is not failed)
+  // 441-466: the opposite FAC's copy is usable when it reports its own LGCIU valid (and the word is not failed)
   const bool oppValid = bit(oppWord5, kFacLgciuValidBit) && a429::isNotFailed(oppWord5);
   GearState& g = s_.gear;
   if (ownValid) {
@@ -74,7 +74,7 @@ void InputConditioning::updateSlatFlap(const fac_inputs& in) {
   const base_sfcc_bus& sfcc = in.bus_inputs.sfcc_own_bus;
   const base_fac_bus& opp = in.bus_inputs.fac_opp_bus;
   const base_arinc_429& status = sfcc.slat_flap_system_status_word;
-  // 444-458: own SFCC valid while its status word is not failed and the slat-extended discrete has not agreed with the
+  // 486-493: own SFCC valid while its status word is not failed and the slat-extended discrete has not agreed with the
   // actual position word bit 12 for 1 s. The wrapper derives the discrete as the inverse of that bit (when the word is
   // normal), so with a working SFCC they always differ.
   const bool discreteDiffers = in.discrete_inputs.slats_extended != bit(sfcc.slat_flap_actual_position_word, kSfccSlatBit);
@@ -84,7 +84,7 @@ void InputConditioning::updateSlatFlap(const fac_inputs& in) {
 
   SlatFlapState& sf = s_.slatFlap;
   if (ownValid) {
-    // 472-489: the configuration from the status word bits (first match wins)
+    // 506-525: the configuration from the status word bits (first match wins)
     if (bit(status, kSfccConf0Bit)) {
       sf.configIndex = 0.0F;
     } else if (bit(status, kSfccConf1Bit) && bit(status, kSfccConf1FlapsBit)) {
@@ -116,7 +116,7 @@ void InputConditioning::updateSlatFlap(const fac_inputs& in) {
     sf.slatFppuDeg = opp.fac_slat_angle_deg.Data;
     sf.actualPositionWord = opp.discrete_word_1.Data;
   } else if (s_.gear.mainGearOut) {
-    // 545-549: no SFCC information with the gear down: assume CONF FULL
+    // 544-555: no SFCC information with the gear down: assume CONF FULL
     sf.configIndex = kGearDownConfigIndex;
     sf.flapFppuDeg = kGearDownFlapAngle;
     sf.slatFppuDeg = kGearDownSlatAngle;
@@ -131,7 +131,7 @@ void InputConditioning::updateSlatFlap(const fac_inputs& in) {
 }
 
 void InputConditioning::updateAirData(const base_fac_bus_inputs& b) {
-  // 558-596: an ADR is invalid when its CAS or AoA word reports a failure (NCD counts as valid)
+  // 558-600: an ADR is invalid when its CAS or AoA word reports a failure (NCD counts as valid)
   auto invalid = [](const base_adr_bus& a) {
     return !a429::isNotFailed(a.airspeed_computed_kn) || !a429::isNotFailed(a.aoa_corrected_deg);
   };
@@ -153,7 +153,7 @@ void InputConditioning::updateAirData(const base_fac_bus_inputs& b) {
 }
 
 void InputConditioning::updateInertialData(const base_fac_bus_inputs& b) {
-  // 567-642: an IR is invalid unless its body yaw rate and lateral acceleration words are both normal
+  // 567-638: an IR is invalid unless its body yaw rate and lateral acceleration words are both normal
   auto invalid = [](const base_ir_bus& r) {
     return !a429::isNormal(r.body_yaw_rate_deg_s) || !a429::isNormal(r.body_lat_accel_g);
   };
@@ -188,7 +188,7 @@ const Sensors& InputConditioning::update(const fac_inputs& in) {
   updateAirData(b);
   updateInertialData(b);
 
-  // 644-659: radio height from the own FMGC unless its word has been failed for 0.6 s (a falling-edge confirm: back
+  // 640-655: radio height from the own FMGC unless its word has been failed for 0.6 s (a falling-edge confirm: back
   // as soon as it is not failed), else from the opposite FMGC (whatever its state). Both failed for 0.6 s: all RA
   // failed (the opposite FMGC's word is still passed on).
   const bool ownRa = raOwn_.update(a429::isNotFailed(b.fmgc_own_bus.fg_radio_height_ft), in.time.dt, false,
@@ -198,7 +198,7 @@ const Sensors& InputConditioning::update(const fac_inputs& in) {
   s_.radioHeight = ownRa ? b.fmgc_own_bus.fg_radio_height_ft : b.fmgc_opp_bus.fg_radio_height_ft;
   s_.allRaFailed = !ownRa && !oppRa;
 
-  // 662-667: the own FMGC is followed when its AP is engaged (unless both APs are and this is FAC 2), or with no AP
+  // 656-662: the own FMGC is followed when its AP is engaged (unless both APs are and this is FAC 2), or with no AP
   // engaged when its FM weight and CG words are normal
   s_.anyApEngaged = d.ap_own_engaged || d.ap_opp_engaged;
   const bool ownWeightAndCg = a429::isNormal(b.fmgc_own_bus.fm_weight_lbs) && a429::isNormal(b.fmgc_own_bus.fm_cg_percent);
@@ -206,7 +206,7 @@ const Sensors& InputConditioning::update(const fac_inputs& in) {
                        (!d.ap_opp_engaged || !d.ap_own_engaged || d.is_unit_1);
   s_.fmgc = s_.fmgcOwnSelected ? &b.fmgc_own_bus : &b.fmgc_opp_bus;
 
-  // 668-670: on ground once either main gear has been compressed for 0.5 s (in flight as soon as both are not)
+  // 663-665: on ground once either main gear has been compressed for 0.5 s (in flight as soon as both are not)
   s_.onGround = onGround_.update(s_.gear.leftMainPressed || s_.gear.rightMainPressed, in.time.dt, true,
                                  kOnGroundConfirmSeconds);
   return s_;

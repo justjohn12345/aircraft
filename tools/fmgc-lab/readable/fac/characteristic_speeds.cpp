@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0
 
-// The FAC's characteristic speeds (generated FacComputer.cpp 688-689, 831-993). See characteristic_speeds.h.
+// The FAC's characteristic speeds (generated FacComputer.cpp 682-685, 832-985). See characteristic_speeds.h.
 
 #include "characteristic_speeds.h"
 
@@ -81,10 +81,10 @@ const SpeedOutputs& CharacteristicSpeeds::update(const fac_inputs& in, const Sen
   const float altitude = s.adr.altitudeFt;
   SpeedOutputs& o = out_;
 
-  // 688-689: speeds valid 10 s after lift-off (any frame on the ground resets it)
+  // 682-685: speeds valid 10 s after lift-off (any frame on the ground resets it)
   o.speedScaleVisible = speedScale_.update(!s.onGround, dt, true, kSpeedScaleDelaySeconds);
 
-  // 831-848: alpha-based speeds from the filtered alpha; each limit rate limited to 1 deg/s
+  // 832-859: alpha-based speeds from the filtered alpha; each limit rate limited to 1 deg/s
   const double alpha0 = alpha0_.update(blocks::lookup1(config, kConfig, kAlpha0Deg), 1.0, 1.0, dt);
   const double alphaMax = alphaMax_.update(blocks::lookup2(mach, config, kMach, kConfig, kAlphaMaxDeg), 1.0, 1.0, dt);
   o.vAlphaMax = alphaSpeed(cas, alphaFilteredDeg, alpha0, alphaMax);
@@ -94,7 +94,7 @@ const SpeedOutputs& CharacteristicSpeeds::update(const fac_inputs& in, const Sen
       alphaStallWarn_.update(blocks::lookup2(mach, config, kMach, kConfig, kAlphaStallWarnDeg), 1.0, 1.0, dt);
   o.vStallWarn = alphaSpeed(cas, alphaFilteredDeg, alpha0, alphaStallWarn);
 
-  // 851-863: weight from the own FMGC (FM weight when normal, else the FAC weight word it relays); VS rate limited
+  // 860-874: weight from the own FMGC (FM weight when normal, else the FAC weight word it relays); VS rate limited
   o.weightLbs = a429::isNormal(b.fmgc_own_bus.fm_weight_lbs) ? b.fmgc_own_bus.fm_weight_lbs.Data
                                                               : b.fmgc_own_bus.fac_weight_lbs.Data;
   const double weight = o.weightLbs;
@@ -102,7 +102,7 @@ const SpeedOutputs& CharacteristicSpeeds::update(const fac_inputs& in, const Sen
                                        blocks::lookup1(config, kConfig, kVsSlopeKnPerT), weight),
                             kVsRateKnS, kVsRateKnS, dt, 0.0, false);
 
-  // 864-874: speed brake extension from the first ELAC with a normal word
+  // 875-886: speed brake extension from the first ELAC with a normal word
   double speedBrake;
   if (a429::isNormal(b.elac_1_bus.speedbrake_extension_deg)) {
     speedBrake = b.elac_1_bus.speedbrake_extension_deg.Data;
@@ -112,7 +112,8 @@ const SpeedOutputs& CharacteristicSpeeds::update(const fac_inputs& in, const Sen
     speedBrake = 0.0;
   }
 
-  // 876-890: 1.3 g buffet Mach for the weight/CG parameter and flight level (weight in t, CG in % MAC)
+  // 888-903: buffet Mach for the weight/CG parameter and flight level. The parameter grows with the weight (t) and is
+  // corrected to a CG of 25 % MAC (a more aft CG lowers it), at least 1; the flight level is limited to 200..410.
   const double cgPercent = b.fmgc_own_bus.fm_cg_percent.Data * 100.0;
   const double tonnes = o.weightLbs / kLbsPerTonne;
   const double p = (tonnes * 0.19807001167721894 - 0.0347376119873668) * 1.3 - 5.9;
@@ -121,7 +122,7 @@ const SpeedOutputs& CharacteristicSpeeds::update(const fac_inputs& in, const Sen
   const double buffetMach = blocks::limit(
       blocks::lookup2(buffetParameter, flightLevel, kBuffetParameter, kBuffetFlightLevel, kBuffetMach), 0.0, 1.0);
 
-  // 892-918: VLS factor. The take-off configuration is the one held on the ground (both main gears, an LGCIU); it is
+  // 904-940: VLS factor. The take-off configuration is the one held on the ground (both main gears, an LGCIU); it is
   // forgotten (-1) as soon as the configuration changes in flight.
   if (!s.gear.allLgciuLost && s.gear.leftMainPressed && s.gear.rightMainPressed) {
     takeoffConfig_ = s.slatFlap.configIndex;
@@ -143,7 +144,7 @@ const SpeedOutputs& CharacteristicSpeeds::update(const fac_inputs& in, const Sen
   o.vls = std::fmax(std::fmax(buffetCas, kVmclKn), vlsFactor * o.vStall) +
           blocks::lookup1(speedBrake, kSpeedBrakeDeg, kSpeedBrakeVlsKn);
 
-  // 927-946: F, S and green dot
+  // 941-957: F, S and green dot
   const double vsConf2 = stallSpeed(blocks::lookup1(2.0, kConfig, kVs40tKn), blocks::lookup1(2.0, kConfig, kVsSlopeKnPerT),
                                     weight);
   o.v3 = std::fmax(kFSpeedFactor * vsConf2, kVmclKn + kFSpeedMarginKn);
@@ -156,7 +157,7 @@ const SpeedOutputs& CharacteristicSpeeds::update(const fac_inputs& in, const Sen
   o.v3Visible = idx == 3.0F || idx == 4.0F;
   o.vManVisible = idx == 0.0F;
 
-  // 948-963: VMAX and VFE next
+  // 958-974: VMAX and VFE next
   const double mmo = std::fmax(kMmo, 0.0);
   const double vmo = s.gear.mainGearOut ? kVmoGearDownKn : kVmoKn;
   o.vMax = std::fmin(std::fmin(vmo, casForMach(mmo, std::fmax(static_cast<double>(s.adr.staticPressureHpa), 0.0) / 1013.25)),
@@ -164,7 +165,7 @@ const SpeedOutputs& CharacteristicSpeeds::update(const fac_inputs& in, const Sen
   o.vFeNext = blocks::lookup1(config, kConfig, kVfeNextKn);
   o.vFeNextVisible = idx < 5.0F && altitude <= kVfeNextMaxAltitudeFt;
 
-  // 964-975: speed trend
+  // 975-985: speed trend
   const double lagged = trendLag_.update(blocks::limit(cas, kTrendCasMinKn, kTrendCasMaxKn), 1.0, dt);
   o.trend = kTrendSeconds * trendWashout_.update(lagged, 1.0, dt);
   return o;

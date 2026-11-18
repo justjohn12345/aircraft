@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0
 
-// The readable FAC (generated FacComputer::step / initialize, FacComputer.cpp 264-1587). See fac.h.
+// The readable FAC (generated FacComputer::step / initialize, FacComputer.cpp 277-1574). See fac.h.
 
 #include "fac.h"
 

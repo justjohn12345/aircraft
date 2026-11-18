@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0
 
-// The FAC's alpha floor detection (generated FacComputer.cpp 748-830): the filtered angle of attack, the alpha floor
+// The FAC's alpha floor detection (generated FacComputer.cpp 722-831): the filtered angle of attack, the alpha floor
 // threshold for Mach and configuration, the speed-rate anticipation, the flight phase chart that inhibits alpha floor
 // on the ground and below 100 ft in approach, and the alpha floor latch sent to the FMGCs (FAC discrete word 5 bit 29).
 //

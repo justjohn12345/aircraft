@@ -2,13 +2,13 @@
 //
 // SPDX-License-Identifier: GPL-3.0
 
-// The FAC's characteristic speeds for the PFD speed scale and the FMGCs (generated FacComputer.cpp 688-689, 831-993):
+// The FAC's characteristic speeds for the PFD speed scale and the FMGCs (generated FacComputer.cpp 682-685, 832-985):
 //
 //   V alpha max, V alpha prot, V stall warning   CAS x sqrt(|alpha - alpha0| / (alpha limit - alpha0)): the speed at
 //                                which the filtered angle of attack would reach the limit at 1 g, alpha0 being the zero
 //                                lift angle; limits for Mach and configuration, each rate limited to 1 deg/s
 //   VS (1 g stall)               a + b x (weight - 40 t), per configuration, rate limited 5 kt/s (from 0 at power-up)
-//   VLS                          max(1.3 g buffet CAS above 20000 ft (clean), VMCL 116 kt, k x VS) + up to 18 kt with
+//   VLS                          max(buffet CAS from 20000 ft (0.2 g margin), VMCL 116 kt, k x VS) + up to 18 kt with
 //                                speed brakes; k = 1.28 clean, 1.13 in the take-off configuration, 1.23 otherwise,
 //                                rate limited 0.1/s (from 0 at power-up)
 //   F (V3), S (V4)               1.26 VS(CONF 2) >= 131 kt, 1.23 VS(CONF 0) >= 136 kt; shown in CONF 2-3 and CONF 1-1+F

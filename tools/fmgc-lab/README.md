@@ -1,8 +1,8 @@
 # fmgc-lab
 
 Native (no MSFS) build of the generated A32NX FMGC (`FmgcComputer` + `FmgcOuterLoops`) with a flight data recorder
-replay harness. Phase 0 of the FMGC reverse-engineering plan (`~/fmgc-lab/PLAN.md`). The FCU (`FcuComputer`) and the
-FADEC (`FadecComputer`) have the same treatment: see "FCU" and "FADEC" at the end.
+replay harness. Phase 0 of the FMGC reverse-engineering plan (`~/fmgc-lab/PLAN.md`). The FCU (`FcuComputer`), the
+FADEC (`FadecComputer`) and the FAC (`FacComputer`) have the same treatment: see "FCU", "FADEC" and "FAC" at the end.
 
 **Findings:** every bug and FCOM difference found so far, with status, is indexed in `docs/findings.md`.
 

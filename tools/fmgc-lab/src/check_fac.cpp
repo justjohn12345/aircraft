@@ -5,13 +5,16 @@
 // Differential check of the readable FAC (readable/fac/) against the generated FacComputer over a flight data
 // recording. Two pairs (FAC 1 and 2) run in lockstep on the same inputs, free-running (the readable FACs never see a
 // generated value); every step the whole fac_outputs (data, laws, logic, flight envelope, discretes, analog orders,
-// bus) is compared leaf by leaf, bit-exact (floats by bit pattern), and so are the hidden memories (confirm nodes,
-// filters, rate limiters, latches, the flight phase chart, the rudder trim integrator).
+// bus) is compared leaf by leaf, bit-exact (floats by bit pattern; two NaNs match whatever their sign and payload: x86
+// takes them from whichever operand the compiler put first in a commutative operation, and no FAC output depends on
+// a NaN's sign), and so are the hidden memories (confirm nodes, filters, rate limiters, latches, the flight phase
+// chart, the rudder trim integrator).
 //
 // Inputs (src/fac_drive.h): both FACs' inputs rebuilt from any recording (no format records them). Injectors
 // (src/fac_scenarios.h), combinable: --script, --failures, --discretes, --power, --sim SEED. --warm FILE: run both over
 // FILE first, then re-construct the generated FACs and initialize() both (checks that the readable initialize() is a
-// complete reset). --time: step times only.
+// complete reset). --time: step times only. --dump STEP: every generated output leaf (inputs included) of both FACs at
+// STEP - 1 and STEP.
 //
 // Exit status 0 when every leaf and hidden memory matched on every step, 1 on any mismatch, 2 on usage/file errors.
 
@@ -184,6 +187,7 @@ struct Events {
 int main(int argc, char** argv) {
   long scriptSeed = -1, failuresSeed = -1, discretesSeed = -1, powerSeed = -1, simSeed = -1;
   int maxListed = 40;
+  long dumpStep = -1;
   bool timeOnly = false;
   std::string path, warmPath;
   bool usage = false;
@@ -203,6 +207,8 @@ int main(int argc, char** argv) {
       maxListed = std::atoi(argv[++i]);
     } else if (a == "--warm" && i + 1 < argc) {
       warmPath = argv[++i];
+    } else if (a == "--dump" && i + 1 < argc) {
+      dumpStep = std::atol(argv[++i]);
     } else if (a == "--time") {
       timeOnly = true;
     } else if (path.empty() && !a.empty() && a[0] != '-') {
@@ -214,7 +220,7 @@ int main(int argc, char** argv) {
   if (path.empty() || usage) {
     std::fprintf(stderr,
                  "usage: fac-check [--script SEED] [--failures SEED] [--discretes SEED] [--power SEED] [--sim SEED] "
-                 "[--warm FILE] [--time] [--list N] <file.fdr>\n");
+                 "[--warm FILE] [--time] [--list N] [--dump STEP] <file.fdr>\n");
     return 2;
   }
 
@@ -311,17 +317,28 @@ int main(int argc, char** argv) {
       genSeconds += std::chrono::duration<double>(t1 - t0).count();
       readSeconds += std::chrono::duration<double>(t2 - t1).count();
       if (timeOnly) continue;
-      n += compareFcuLeaves(leaves[e], generated[e]->FacComputer_Y.out, r, steps, in[e].time.simulation_time, true);
+      n += compareFcuLeaves(leaves[e], generated[e]->FacComputer_Y.out, r, steps, in[e].time.simulation_time, true,
+                            true);
       events[e].update(*generated[e]);
     }
     if (timeOnly) return;
+    if (steps == dumpStep || steps == dumpStep - 1) {
+      // every leaf of both FACs' generated outputs (inputs included) at this step and the one before
+      for (int e = 0; e < 2; e++) {
+        std::vector<FcuLeaf> all = fcuLeaves<fac_outputs>();
+        for (const FcuLeaf& l : all) {
+          std::printf("dump %ld fac%d.%s %s\n", steps, e + 1, l.name.c_str(),
+                      showFcuLeaf(l, &generated[e]->FacComputer_Y.out).c_str());
+        }
+      }
+    }
 
     size_t k = 0;
     collectHidden(*generated[0], readable[0], "fac1.", hidden, hiddenValues, k);
     collectHidden(*generated[1], readable[1], "fac2.", hidden, hiddenValues, k);
     for (size_t h = 0; h < hidden.size(); h++) {
       auto [hg, hr] = hiddenValues[h];
-      if (std::memcmp(&hg, &hr, sizeof(double)) != 0) {
+      if (std::memcmp(&hg, &hr, sizeof(double)) != 0 && !(hg != hg && hr != hr)) {
         Hidden& x = hidden[h];
         if (x.firstStep < 0) {
           x.firstStep = steps;

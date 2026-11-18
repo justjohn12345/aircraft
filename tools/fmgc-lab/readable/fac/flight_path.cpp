@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0
 
 // The FAC's sideslip estimate and target, flight path angles, low energy and pitch-pitch warnings (generated
-// FacComputer.cpp 690-724, 976-1100). See flight_path.h.
+// FacComputer.cpp 686-721, 986-1094). See flight_path.h.
 
 #include "flight_path.h"
 
@@ -56,7 +56,7 @@ void FlightPath::reset() {
 
 void FlightPath::updateSideslip(const fac_inputs& in, const Sensors& s) {
   const double dt = in.time.dt;
-  // 690-698: sideslip that gives the measured lateral load factor: ny g / (q S / m x CY_beta), with q from CAS (m/s),
+  // 686-697: sideslip that gives the measured lateral load factor: ny g / (q S / m x CY_beta), with q from CAS (m/s),
   // S = 122 m2, m = 70 t, CY_beta = -0.62 /rad; 0 below 30 kt
   const double v = s.adr.casKn * kKtToMs;
   double beta = 0.0;
@@ -65,7 +65,7 @@ void FlightPath::updateSideslip(const fac_inputs& in, const Sensors& s) {
   }
   out_.estimatedBetaDeg = sideslip_.update(beta, kSideslipLagC1, dt);
 
-  // 699-720: sideslip target for an engine failure, from the (lagged) N1 difference of the own FMGC's N1 words
+  // 698-721: sideslip target for an engine failure, from the (lagged) N1 difference of the own FMGC's N1 words
   const base_fmgc_b_bus& fmgc = in.bus_inputs.fmgc_own_bus;
   const float n1RightMinusLeft = n1RightMinusLeft_.update(
       fmgc.n1_right_percent.Data - fmgc.n1_left_percent.Data, kBetaTargetLagC1, dt);
@@ -83,7 +83,7 @@ void FlightPath::updateWarnings(const fac_inputs& in, const Sensors& s, double a
   const base_fac_bus_inputs& b = in.bus_inputs;
   const base_fmgc_b_bus& fmgc = *s.fmgc;
 
-  // 1031-1043: pitch-pitch: tail strike risk on the ground and just after lift-off / in the flare
+  // 986-1002: pitch-pitch: tail strike risk on the ground and just after lift-off / in the flare
   const float ra = a429::rawValue(s.radioHeight);
   const bool raNcd = raNcd_.update(s.radioHeight.SSM == static_cast<uint32_t>(SignStatusMatrix::NoComputedData), dt,
                                    true, kRaNcdConfirmSeconds);
@@ -91,7 +91,7 @@ void FlightPath::updateWarnings(const fac_inputs& in, const Sensors& s, double a
                     (!d.ap_opp_engaged && !d.ap_own_engaged) && !bit(fmgc.discrete_word_1, kFmgcTogaLeverBit) &&
                     (ra <= kPitchPitchMaxRaFt && !s.allRaFailed && !raNcd);
 
-  // 1044-1058: gamma_a = pitch - alpha cos(roll) (pitch for alpha on the ground); gamma_t = nx (deg) - nz alpha,
+  // 1003-1035: gamma_a = pitch - alpha cos(roll) (pitch for alpha on the ground); gamma_t = nx (deg) - nz alpha,
   // nz - 1 lagged and limited to +-0.8 g
   const double alphaOrPitch = s.onGround ? s.ir.thetaDeg : s.adr.alphaDeg;
   out_.gammaADeg =
@@ -99,7 +99,7 @@ void FlightPath::updateWarnings(const fac_inputs& in, const Sensors& s, double a
   const double nzMinusOne = blocks::limit(nz_.update(s.ir.nzG + -1.0, 1.0, dt), -0.8, 0.8);
   out_.gammaTDeg = gammaT_.update(kRadToDeg * s.ir.nxG - (nzMinusOne + 1.0) * alphaOrPitch, 1.0, dt);
 
-  // 1061-1083: low energy alpha threshold: base (flaps) + flight path angle term + deceleration term (flaps gain,
+  // 1036-1064: low energy alpha threshold: base (flaps) + flight path angle term + deceleration term (flaps gain,
   // -5..0 deg). The inertial flight path angle is V/S over ground speed (as an angle, not an arctangent).
   const double groundSpeed = blocks::limit(s.ir.groundSpeedKn, 1.0, 500.0);
   const double fpa = inertialFpa_.update(kRadToDeg * (kFtMinToMs * s.ir.verticalSpeed / (kKtToMs * groundSpeed)), 0.5, dt);
@@ -110,7 +110,7 @@ void FlightPath::updateWarnings(const fac_inputs& in, const Sensors& s, double a
   const double alphaThreshold =
       (blocks::lookup1(fpa, kFpaDeg, kFpaTermDeg) + decelTerm) + blocks::lookup1(flaps, kFlapSurfaceDeg, kBaseAlphaDeg);
 
-  // 1084-1100: low energy warning
+  // 1065-1094: low energy warning
   const bool alphaFloor = bit(fmgc.ats_discrete_word, kFmgcAlphaFloorBit);
   const bool goAroundInhibit =
       goAround_.update(bit(fmgc.discrete_word_1, kFmgcSrsGoAroundBit), dt, true, false, kGoAroundInhibitSeconds);

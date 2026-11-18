@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0
 
-// The FAC's outputs (generated FacComputer.cpp 1223-1586): the FAC bus to the FMGCs, the PFD, the opposite FAC and the
+// The FAC's outputs (generated FacComputer.cpp 1220-1563): the FAC bus to the FMGCs, the PFD, the opposite FAC and the
 // ELACs/SECs, the discretes and analog orders to the rudder actuators, and the logic / flight envelope / laws copies
 // of fac_outputs. Stateless.
 //

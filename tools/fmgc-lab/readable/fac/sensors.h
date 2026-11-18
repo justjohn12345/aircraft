@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0
 
-// The FAC's input conditioning (generated FacComputer.cpp 392-718): which landing gear, slat/flap, air data, inertial,
+// The FAC's input conditioning (generated FacComputer.cpp 426-665): which landing gear, slat/flap, air data, inertial,
 // radio height and FMGC source the FAC uses, and the failure flags of the logic bus.
 //
 // Sources and fallbacks (ARINC bits 1-based):

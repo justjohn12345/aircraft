@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0
 
-// Library blocks of the generated FAC (FacComputer.cpp 19-263). Most are the FMGC's (readable/blocks.h), the same
+// Library blocks of the generated FAC (FacComputer.cpp 19-275). Most are the FMGC's (readable/blocks.h), the same
 // Simulink library compiled the same way:
 //
 //   FacComputer_MATLABFunction          SSM != FW            -> a429::isNotFailed
@@ -40,7 +40,7 @@ using fmgc::blocks::WashoutFilter;
 namespace a429 = fmgc::blocks::a429;
 
 /**
- * RateLimiterGenericVariableTs (59-79): the output follows the input at no more than |up| per second upwards and |lo|
+ * RateLimiterGenericVariableTs (79-100): the output follows the input at no more than |up| per second upwards and |lo|
  * per second downwards. Starts at its first input; `reset` makes it the input (no FAC instance resets it).
  */
 struct RateLimiter {
@@ -61,7 +61,7 @@ struct RateLimiter {
 };
 
 /**
- * The same rate limiter with an initial value (219-261): starts at `init` on its first frame and while `holdAtInit`
+ * The same rate limiter with an initial value (220-264): starts at `init` on its first frame and while `holdAtInit`
  * is true (then the output is `init`).
  */
 struct RateLimiterFrom {

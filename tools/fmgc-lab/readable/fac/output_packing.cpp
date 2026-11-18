@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0
 
-// The FAC's outputs (generated FacComputer.cpp 1223-1586). See output_packing.h.
+// The FAC's outputs (generated FacComputer.cpp 1220-1563). See output_packing.h.
 
 #include "output_packing.h"
 

@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0
 
 // The FAC's three rudder functions: yaw damper, rudder trim and rudder travel limiter (generated FacComputer.cpp
-// 670-689 engagement, 1102-1238 laws).
+// 666-681 engagement, 1095-1219 laws).
 //
 // Engagement, the same for each function: it "can engage" with the FAC pushbutton on and its actuator available (the
 // yaw damper: hydraulic pressure, green for FAC 1, yellow for FAC 2; the trim and limiter actuators are always healthy
@@ -65,7 +65,7 @@ class RudderTrim {
  public:
   void reset();
 
-  /** Generated 1102-1171. Returns the rudder trim order (laws.rudder_trim_command_deg). */
+  /** Generated 1095-1171. Returns the rudder trim order (laws.rudder_trim_command_deg). */
   double update(const fac_inputs& in, const Sensors& s, bool engaged);
 
   // state access for the checker
@@ -91,7 +91,7 @@ class YawDamper {
  public:
   void reset();
 
-  /** Generated 1172-1209. Returns the yaw damper order (laws.yaw_damper_command_deg). */
+  /** Generated 1172-1206. Returns the yaw damper order (laws.yaw_damper_command_deg). */
   double update(const fac_inputs& in, const Sensors& s, bool engaged);
 
   const blocks::WashoutFilter& washout() const { return washout_; }
@@ -106,7 +106,7 @@ class TravelLimiter {
  public:
   void reset();
 
-  /** Generated 1210-1222. Returns the rudder travel limit order (laws.rudder_travel_lim_command_deg). */
+  /** Generated 1207-1219. Returns the rudder travel limit order (laws.rudder_travel_lim_command_deg). */
   double update(const fac_inputs& in, const Sensors& s, bool engaged);
 
   const blocks::RateLimiterFrom& orderRate() const { return order_; }

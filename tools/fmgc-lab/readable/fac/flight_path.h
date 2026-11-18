@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0
 
-// The rest of the FAC's flight envelope function (generated FacComputer.cpp 690-724, 976-1100):
+// The rest of the FAC's flight envelope function (generated FacComputer.cpp 686-721, 986-1094):
 //
 //   estimated sideslip   from the lateral load factor and CAS (side force derivative of a 70 t aircraft), lag 4 rad/s
 //   sideslip target      the engine-out "beta target": alpha x N1 difference and N1 difference terms over CAS^2; sent
@@ -52,10 +52,10 @@ class FlightPath {
  public:
   void reset();
 
-  /** Sideslip estimate and target (generated 690-724). */
+  /** Sideslip estimate and target (generated 686-721). */
   void updateSideslip(const fac_inputs& in, const Sensors& s);
 
-  /** Flight path angles and the two warnings (976-1100); needs VLS and the filtered alpha. */
+  /** Flight path angles and the two warnings (986-1094); needs VLS and the filtered alpha. */
   void updateWarnings(const fac_inputs& in, const Sensors& s, double alphaFilteredDeg, double vls);
 
   const FlightPathOutputs& outputs() const { return out_; }

@@ -13,14 +13,14 @@
 // initial values), the rudder trim integrator excepted (it is reloaded instead).
 //
 // Pipeline of one frame:
-//   sensors               landing gear, slats/flaps, ADR, IR, radio height and FMGC selection, on ground  392-670
-//   yaw_functions         engagement of the yaw damper, rudder trim and travel limiter                    671-689
-//   flight_path           estimated sideslip and the engine-out sideslip target                           690-724
-//   alpha_floor           filtered alpha, alpha floor threshold, flight phase, alpha floor latch           727-830
-//   characteristic_speeds V alpha max/prot, VSW, VS, VLS, F, S, green dot, VMAX, VFE next, trend          831-975
-//   flight_path           gamma_a, gamma_t, pitch-pitch and low energy warnings                           1031-1100
-//   yaw_functions         rudder trim, yaw damper, travel limiter orders                                  1102-1222
-//   output_packing        FAC bus, discretes, analog orders, logic and flight envelope copies             1223-1586
+//   sensors               landing gear, slats/flaps, ADR, IR, radio height and FMGC selection, on ground  426-665
+//   yaw_functions         engagement of the yaw damper, rudder trim and travel limiter                    666-681
+//   flight_path           estimated sideslip and the engine-out sideslip target                           686-721
+//   alpha_floor           filtered alpha, alpha floor threshold, flight phase, alpha floor latch           722-831
+//   characteristic_speeds V alpha max/prot, VSW, VS, VLS, F, S, green dot, VMAX, VFE next, trend          682-685, 832-985
+//   flight_path           gamma_a, gamma_t, pitch-pitch and low energy warnings                           986-1094
+//   yaw_functions         rudder trim, yaw damper, travel limiter orders                                  1095-1219
+//   output_packing        FAC bus, discretes, analog orders, logic and flight envelope copies             1220-1563
 //
 // No heap allocation, no static mutable state: copyable, several instances can run side by side.
 
@@ -56,7 +56,7 @@ class FacComputer {
   const TravelLimiter& travelLimiter() const { return travelLimiter_; }
 
  private:
-  /** The first running frame after power-up or a stop (generated Runtime_MODE block, 336-389). */
+  /** The first running frame after power-up or a stop (generated Runtime_MODE block, 380-424). */
   void restart();
 
   bool running_ = false;  // Runtime_MODE

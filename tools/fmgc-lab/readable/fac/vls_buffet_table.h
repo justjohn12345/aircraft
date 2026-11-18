@@ -2,9 +2,10 @@
 //
 // SPDX-License-Identifier: GPL-3.0
 
-// The FAC's 1.3 g buffet Mach table (generated FacComputer_P.uDLookupTable_tableData_c, 45 x 11), used for VLS in
-// clean configuration from 20000 ft (characteristic_speeds.cpp). Rows: flight level 210 to 410 by 20; columns: the
-// weight/CG parameter 0 to 22 by 0.5 (see buffetMach). 0 where the table has no data (low weights at low levels).
+// The FAC's buffet Mach table (generated FacComputer_P.uDLookupTable_tableData_c, 45 x 11), used for VLS from
+// 20000 ft in any configuration (characteristic_speeds.cpp; the FCOM: "corrected for Mach effect to maintain a buffet
+// margin of 0.2 g"). Rows: flight level 210 to 410 by 20; columns: the weight/CG parameter 0 to 22 by 0.5 (see
+// characteristic_speeds.cpp). 0 where the table has no data (low weights at low levels).
 
 #pragma once
 

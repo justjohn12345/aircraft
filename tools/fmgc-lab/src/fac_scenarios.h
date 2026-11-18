@@ -380,7 +380,10 @@ class ScriptScenario {
           auto& b = i.bus_inputs;
           auto& d = i.discrete_inputs;
           if (t > 2 && t < 8) b.lgciu_own_bus.discrete_word_1.SSM = kFw;  // opposite FAC's copy
-          if (t > 4 && t < 6) setBit(b.fac_opp_bus.discrete_word_5, 18, true), setBit(b.fac_opp_bus.discrete_word_5, 20, true);
+          if (t > 4 && t < 6) {
+            setBit(b.fac_opp_bus.discrete_word_5, 18, true);
+            setBit(b.fac_opp_bus.discrete_word_5, 20, true);
+          }
           if (t > 6 && t < 8) b.fac_opp_bus.discrete_word_5.SSM = kFw;  // all LGCIU lost
           if ((t > 9 && t < 9.5) || (t > 10 && t < 12)) d.nose_gear_pressed = true;  // nose disagreement
           if (t > 13 && t < 19) b.sfcc_own_bus.slat_flap_system_status_word.SSM = kFw;

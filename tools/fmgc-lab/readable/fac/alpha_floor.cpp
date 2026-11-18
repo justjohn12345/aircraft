@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0
 
-// The FAC's alpha floor detection (generated FacComputer.cpp 748-830). See alpha_floor.h.
+// The FAC's alpha floor detection (generated FacComputer.cpp 722-831). See alpha_floor.h.
 
 #include "alpha_floor.h"
 
@@ -51,10 +51,10 @@ double AlphaFloor::update(const fac_inputs& in, const Sensors& s) {
   const base_fac_bus_inputs& b = in.bus_inputs;
   const double dt = in.time.dt;
 
-  // 727-729: alpha, lag 0.5 rad/s
+  // 722-724: alpha, lag 0.5 rad/s
   alphaFiltered_ = alphaFilter_.update(static_cast<double>(s.adr.alphaDeg), kAlphaFilterC1, dt);
 
-  // 730-741: either ELAC's high angle of attack protection active; the threshold for Mach and configuration at 1 deg/s
+  // 725-735: either ELAC's high angle of attack protection active; the threshold for Mach and configuration at 1 deg/s
   const bool highAoaProt = a429::bit(b.elac_1_bus.discrete_status_word_2, kElacHighAoaProtBit) != 0U ||
                            a429::bit(b.elac_2_bus.discrete_status_word_2, kElacHighAoaProtBit) != 0U;
   const double threshold = threshold_.update(
@@ -62,12 +62,12 @@ double AlphaFloor::update(const fac_inputs& in, const Sensors& s) {
                       kConfigBreakpoints, kAlphaFloorDeg),
       kAlphaThresholdRateDegS, kAlphaThresholdRateDegS, dt);
 
-  // 742-745: the rate of half the CAS (a discrete derivative of 0.5 x CAS, so kt/s / 2), lag 0.4 rad/s
+  // 736-739: the rate of half the CAS (a discrete derivative of 0.5 x CAS, so kt/s / 2), lag 0.4 rad/s
   const double halfCas = 0.5 * s.adr.casKn;
   const double speedRate = speedRate_.update((halfCas - previousHalfCas_) / dt, kSpeedRateFilterC1, dt);
-  previousHalfCas_ = halfCas;  // Delay_DSTATE, written at the end of the frame (1584); nothing reads it in between
+  previousHalfCas_ = halfCas;  // Delay_DSTATE, written at the end of the frame (1561); nothing reads it in between
 
-  // 746-804: flight phase. The radio height is the own FMGC's word (200 ft when failed, not the selected one).
+  // 740-799: flight phase. The radio height is the own FMGC's word (200 ft when failed, not the selected one).
   const double ra = a429::isNotFailed(b.fmgc_own_bus.fg_radio_height_ft) ? b.fmgc_own_bus.fg_radio_height_ft.Data
                                                                          : kRaFailedDefaultFt;
   bool inhibited;
@@ -108,7 +108,7 @@ double AlphaFloor::update(const fac_inputs& in, const Sensors& s) {
     }
   }
 
-  // 806-830: the latch
+  // 800-831: the latch
   auto normalLaw = [](const base_arinc_429& w) {
     return a429::isNotFailed(w) && a429::bit(w, kElacNormalLawBit) != 0U;
   };
