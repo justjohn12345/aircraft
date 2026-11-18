@@ -315,9 +315,9 @@ Results (2026-11-15, 25 recordings, all 3200006): `check-fcu-corpus.sh` 650 runs
 14,692 restarts, 0 mismatches; step time generated 0.42 us, readable 0.21 us. Coverage of `FcuComputer.cpp`: 98.2 % of
 branches (542/552; the 10 missing sides are unreachable), 99.1 % of lines; readable FCU 96.7-100 % of branches. Mutation test: 371 of 383 mutants caught,
 the 12 survivors equivalent or near-equivalent (`docs/fcu.md`). `fcu-replay` on synthesized 3209001 files: 0
-mismatches over 59,510 frames; a corrupted output field is reported. No real 3209001 recording yet: when one exists,
-`build/fcu-replay-stock <file>` proves the harness reproduces the sim, and `check-fcu-corpus.sh` adds recorded-input
-runs for it automatically.
+mismatches over 59,510 frames; a corrupted output field is reported. Real recordings (2026-11-16 3209003 and
+2026-11-17 3209004, 367,017 frames): `fcu-replay` 0 mismatches (the harness reproduces the sim), `fcu-check` on the
+recorded inputs 0 mismatches; `check-fcu-corpus.sh` adds recorded-input runs for such files automatically.
 
 ## FADEC: replay, readable FADEC, differential check
 
