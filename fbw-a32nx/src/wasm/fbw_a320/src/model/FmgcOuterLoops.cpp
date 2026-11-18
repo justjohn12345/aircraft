@@ -3139,13 +3139,14 @@ void FmgcOuterLoops::step(const real_T *rtu_in_time_dt, const real_T *rtu_in_tim
     FmgcOuterLoops_DWork.pU) + (2.0 * FmgcOuterLoops_rtP.LeadLagFilter_C3 - *rtu_in_time_dt *
     FmgcOuterLoops_rtP.LeadLagFilter_C4) / rtb_Mod2 * FmgcOuterLoops_DWork.pY_l;
   FmgcOuterLoops_DWork.pU = *rtu_in_data_H_radio_ft;
-  // Fix (personal/fg-flare-rate, fmgc-lab findings F24): the radio height rate is the inertial V/S plus the 1 s lagged
+  // Fix (personal/fg-flare-rate, fmgc-lab findings F24): the radio height rate is the inertial V/S plus the 5 s lagged
   // difference to the radio height derivative. The sim's radio altimeters refresh every 80 ms, so the derivative alone
-  // swings by +-400 fpm; the flare law took its time constant from one such sample and flew on the noisy error.
+  // swings by +-400 fpm, and terrain before the threshold adds +-250 fpm bumps; the flare law took its time constant
+  // from one such sample and flew on the noisy error.
   {
     real_T flareRateError = FmgcOuterLoops_rtP.Gain1_Gain_kq * FmgcOuterLoops_DWork.pY_l - *rtu_in_data_H_dot_ft_min;
     real_T flareRateErrorLagged;
-    FmgcOuterLoops_LagFilter_i(&flareRateError, 1.0, rtu_in_time_dt, &flareRateErrorLagged,
+    FmgcOuterLoops_LagFilter_i(&flareRateError, 0.2, rtu_in_time_dt, &flareRateErrorLagged,
       &FmgcOuterLoops_DWork.sf_LagFilter_flareRate);
     *rty_out_flare_law_H_dot_radio_fpm = std::fmin(std::fmax(external_limit - r, *rtu_in_data_H_dot_ft_min +
       flareRateErrorLagged), r + external_limit);
