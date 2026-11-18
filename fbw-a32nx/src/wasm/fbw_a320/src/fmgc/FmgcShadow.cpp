@@ -117,6 +117,10 @@ FmgcShadow::FmgcShadow(int unit) : unit_(unit), readable_(std::make_unique<fmgc:
 
 FmgcShadow::~FmgcShadow() = default;
 
+const fmgc_outputs& FmgcShadow::readableOutputs() const {
+  return readable_->outputs();
+}
+
 const char* FmgcShadow::firstMismatchFieldName() const {
   return firstMismatchLeaf_ >= 0 ? kOutputLeaves[firstMismatchLeaf_].name : "";
 }
@@ -306,9 +310,9 @@ std::FILE* FmgcShadowLog::open() {
     std::fprintf(f,
                  "# FMGC shadow log: readable FMGC (tools/fmgc-lab/readable) vs generated FmgcComputer, every output leaf compared\n"
                  "# bit-exact every frame. Format and offline reproduction: tools/fmgc-lab/docs/shadow.md\n");
-    std::fprintf(f, "FMGC_SHADOW_LOG version=1 leaves=%lu output_bytes=%lu session_fdr=%s created_utc=%s\n",
+    std::fprintf(f, "FMGC_SHADOW_LOG version=1 leaves=%lu output_bytes=%lu session_fdr=%s created_utc=%s primary=%s\n",
                  static_cast<unsigned long>(kOutputLeafCount), static_cast<unsigned long>(sizeof(fmgc_outputs)),
-                 sessionFdr_.empty() ? "none" : sessionFdr_.c_str(), utcStamp().c_str());
+                 sessionFdr_.empty() ? "none" : sessionFdr_.c_str(), utcStamp().c_str(), readablePrimary_ ? "readable" : "generated");
   }
   return f;
 }
@@ -366,7 +370,7 @@ void FmgcShadowLog::writeSummary(FmgcShadow* const units[], int count) {
   }
   std::FILE* f = open();
   std::fprintf(f, "SESSION_END utc=%s\n", utcStamp().c_str());
-  std::string line = "WASM: FMGC SHADOW:";
+  std::string line = readablePrimary_ ? "WASM: FMGC SHADOW (readable primary):" : "WASM: FMGC SHADOW:";
   for (int i = 0; i < count; i++) {
     FmgcShadow* u = units[i];
     if (!u) {

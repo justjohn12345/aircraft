@@ -12,10 +12,11 @@ Fmgc::Fmgc(const Fmgc& obj) : isUnit1(obj.isUnit1) {
 
 Fmgc::~Fmgc() = default;
 
-void Fmgc::enableShadow() {
+void Fmgc::enableShadow(bool readablePrimary) {
   if (!shadow) {
     shadow = std::make_unique<FmgcShadow>(isUnit1 ? 1 : 2);
   }
+  this->readablePrimary = readablePrimary;
 }
 
 // If the power supply is valid and we are on the ground, perform the self-test-sequence.
@@ -48,6 +49,10 @@ void Fmgc::update(double deltaTime, double simulationTime, bool faultActive, boo
   if (shadow) {
     // Same inputs as the generated step (computer_running included); compare only, the outputs above are unchanged.
     shadow->step(modelInputs.in, fmgcComputer.getExternalOutputs().out);
+    if (readablePrimary) {
+      // Phase 6b: the readable FMGC flies; the generated one, stepped above on the same inputs, is the shadow.
+      modelOutputs = shadow->readableOutputs();
+    }
   }
 }
 
@@ -157,5 +162,8 @@ base_fmgc_bus_outputs Fmgc::getBusOutputs() {
 }
 
 const fmgc_outputs& Fmgc::getDebugOutputs() const {
+  if (readablePrimary) {
+    return shadow->readableOutputs();
+  }
   return fmgcComputer.getExternalOutputs().out;
 }

@@ -22,6 +22,8 @@
 #include "recording/FlightDataRecorder.h"
 #include "recording/RecordingDataTypes.h"
 #include "sec/Sec.h"
+#include "shadow/FadecShadow.h"
+#include "shadow/FcuShadow.h"
 
 #include "utils/ConfirmNode.h"
 #include "utils/HysteresisNode.h"
@@ -66,9 +68,20 @@ class FlyByWireInterface {
 
   // FMGC shadow mode (ini [FMGC] SHADOW_ENABLED, tools/fmgc-lab/docs/shadow.md)
   bool fmgcShadowEnabled = false;
+  // [FMGC] READABLE_PRIMARY: the readable FMGC flies, the generated one is the shadow (implies the shadow)
+  bool fmgcReadablePrimary = false;
   std::unique_ptr<FmgcShadowLog> fmgcShadowLog;
   std::unique_ptr<LocalVariable> idFmgcShadowMismatches[2];
   unsigned long long fmgcShadowLastFdrRecords = 0;
+
+  // FCU and FADEC shadow modes (ini [FCU] / [FADEC] SHADOW_ENABLED, same design)
+  bool fcuShadowEnabled = false;
+  std::unique_ptr<shadow::ShadowLog> fcuShadowLog;
+  std::unique_ptr<LocalVariable> idFcuShadowMismatches;
+  bool fadecShadowEnabled = false;
+  std::unique_ptr<FadecShadow> fadecShadows[2];
+  std::unique_ptr<shadow::ShadowLog> fadecShadowLog;
+  std::unique_ptr<LocalVariable> idFadecShadowMismatches[2];
 
   ConfirmNode elac2EmerPowersupplyRelayTimer = ConfirmNode(true, 30);
   SRFlipFlop elac2EmerPowersupplyNoseGearConditionLatch = SRFlipFlop(true);
@@ -704,7 +717,7 @@ class FlyByWireInterface {
 
   bool updateFmgcShim(double sampleTime);
 
-  bool updateFmgcShadow();
+  bool updateShadows();
 
   bool updateFcu(double sampleTime);
 

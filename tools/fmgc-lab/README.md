@@ -299,6 +299,30 @@ Results (2026-11-15): 0 mismatching frames over 18.5 M native frames (6.15 M pla
 12.3 M wasm frames; the self-test catches a single flipped bit in a float, a bool, an enum and an SSM as exactly one
 mismatching frame. Cost per FMGC and frame: native 1.93 µs (readable step 1.78 + comparison 0.15), wasm under V8
 2.23 µs, against about 1.9 µs for the generated step; `fbw.wasm` +163 kB.
+
+**FCU and FADEC shadow** (same design, `fbw-a32nx/src/wasm/fbw_a320/src/shadow/`: a type-independent comparison core
+`ShadowChecker` plus `FcuShadow` / `FadecShadow`): `[FCU] SHADOW_ENABLED`, `[FADEC] SHADOW_ENABLED` (default off),
+`L:A32NX_FCU_SHADOW_MISMATCHES`, `L:A32NX_FADEC_{1,2}_SHADOW_MISMATCHES`, `<fdr>.fcu-shadow.log`,
+`<fdr>.fadec-shadow.log`. Leaf tables `shadow/FcuOutputLeaves.gen.h`, `FadecOutputLeaves.gen.h` (committed,
+`gen_leaf_table.py --root ... --namespace ...`, checked by the lab build).
+
+**Phase 6b, readable FMGC primary**: `[FMGC] READABLE_PRIMARY = true` (default off, implies the FMGC shadow) makes the
+readable FMGC's outputs the ones the aircraft and the flight data recorder use; the generated FmgcComputer still runs on
+the same inputs as the shadow and is compared the same way. Power/self-test/restart logic is unchanged.
+
+```sh
+build/fcu-shadow-test-stock [--log FILE] [--time] [--synthetic] [--power SEED] file.fdr...   # recorded FCU inputs (3209001+)
+build/fadec-shadow-test-stock [--log FILE] [--time] [--synthetic] file.fdr...                # recorded FADEC inputs (3209004)
+build/fcu-shadow-test-stock --self-test [--log-dir DIR] file.fdr                              # likewise fadec-shadow-test
+build/fmgc-shadow-test-stock --primary-test [--unit 1|2] [--power SEED] file.fdr             # 6b: the swap is invisible
+JOBS=8 scripts/check-shadow-corpus.sh   # all of the above over the corpus (ONLY=fmgc|primary|fcu|fadec to narrow)
+```
+
+Results (2026-11-18, 30 recordings): FCU 8.72 M frames (plain and `--power 1`), FADEC 8.72 M FADEC-frames, 0
+mismatching frames, self-tests pass, native and wasm; cost per frame FCU 0.30 µs, FADEC 0.07 µs per engine (native).
+Readable primary: 120 runs, 17.4 M frames, wrapper outputs (bus, discrete, debug/FDR) bit-identical either way.
+Details: `docs/shadow.md`.
+
 ## FCU: replay, readable FCU, differential check
 
 The generated A32NX FCU (`FcuComputer`) gets the same treatment: a native build per model variant

@@ -161,10 +161,40 @@ clang++ \
 # restore directory
 popd
 
-# compile the FMGC shadow checker with the readable FMGC it runs (tools/fmgc-lab/readable, every source but the tests;
-# see tools/fmgc-lab/docs/shadow.md) into their own folder: readable/fmgc.cpp and fmgc/Fmgc.cpp would both become
-# fmgc.o on a case-insensitive file system
+# Shadow checkers (see tools/fmgc-lab/docs/shadow.md): the readable computers they run are compiled straight from
+# tools/fmgc-lab/readable, each computer into its own object folder: readable/fmgc.cpp and fmgc/Fmgc.cpp would both
+# become fmgc.o on a case-insensitive file system, and readable/, readable/fcu/ and readable/fadec/ each have an
+# output_packing.cpp. Same flags as the main compile, plus -ffp-contract=off as in the lab.
 FMGC_LAB_DIR="${DIR}/../../../../tools/fmgc-lab"
+SHADOW_CLANG_ARGS=(
+  -c
+  ${CLANG_ARGS}
+  -std=c++20
+  -Wno-unused-command-line-argument
+  -Wno-ignored-attributes
+  -Wno-macro-redefined
+  --sysroot "${MSFS_SDK}/WASM/wasi-sysroot"
+  -target wasm32-unknown-wasi
+  -D_MSFS_WASM=1
+  -D__wasi__
+  -D_LARGEFILE64_SOURCE
+  -D_LIBCPP_HAS_NO_THREADS
+  -D_WINDLL
+  -D_MBCS
+  -DNOMINMAX
+  -mthread-model single
+  -fno-exceptions
+  -fms-extensions
+  -fvisibility=hidden
+  -fdata-sections
+  -fno-stack-protector
+  -fstack-size-section
+  -mbulk-memory
+  -ffp-contract=off
+  -Werror=return-type
+)
+
+# the FMGC shadow checker with the readable FMGC (every readable/*.cpp but the tests)
 READABLE_FMGC_SOURCES=()
 for source in "${FMGC_LAB_DIR}"/readable/*.cpp; do
   [[ "${source}" == *_test.cpp ]] || READABLE_FMGC_SOURCES+=("${source}")
@@ -174,35 +204,43 @@ rm -f "${DIR}/obj/fmgc-shadow/"*.o
 pushd "${DIR}/obj/fmgc-shadow"
 
 clang++ \
-  -c \
-  ${CLANG_ARGS} \
-  -std=c++20 \
-  -Wno-unused-command-line-argument \
-  -Wno-ignored-attributes \
-  -Wno-macro-redefined \
-  --sysroot "${MSFS_SDK}/WASM/wasi-sysroot" \
-  -target wasm32-unknown-wasi \
-  -D_MSFS_WASM=1 \
-  -D__wasi__ \
-  -D_LARGEFILE64_SOURCE \
-  -D_LIBCPP_HAS_NO_THREADS \
-  -D_WINDLL \
-  -D_MBCS \
-  -DNOMINMAX \
-  -mthread-model single \
-  -fno-exceptions \
-  -fms-extensions \
-  -fvisibility=hidden \
-  -fdata-sections \
-  -fno-stack-protector \
-  -fstack-size-section \
-  -mbulk-memory \
-  -ffp-contract=off \
-  -Werror=return-type \
+  "${SHADOW_CLANG_ARGS[@]}" \
   -I "${DIR}/src/model" \
   -I "${FMGC_LAB_DIR}" \
   "${DIR}/src/fmgc/FmgcShadow.cpp" \
   "${READABLE_FMGC_SOURCES[@]}"
+
+popd
+
+# the FCU shadow checker (with the shared comparison core) and the readable FCU (readable/fcu/*.cpp); readable/ is on
+# the include path for the readable FMGC's blocks.h, which the FCU and FADEC blocks build on
+mkdir -p "${DIR}/obj/fcu-shadow"
+rm -f "${DIR}/obj/fcu-shadow/"*.o
+pushd "${DIR}/obj/fcu-shadow"
+
+clang++ \
+  "${SHADOW_CLANG_ARGS[@]}" \
+  -I "${DIR}/src/model" \
+  -I "${FMGC_LAB_DIR}" \
+  -I "${FMGC_LAB_DIR}/readable" \
+  "${DIR}/src/shadow/ShadowChecker.cpp" \
+  "${DIR}/src/shadow/FcuShadow.cpp" \
+  "${FMGC_LAB_DIR}"/readable/fcu/*.cpp
+
+popd
+
+# the FADEC shadow checker and the readable FADEC (readable/fadec/*.cpp)
+mkdir -p "${DIR}/obj/fadec-shadow"
+rm -f "${DIR}/obj/fadec-shadow/"*.o
+pushd "${DIR}/obj/fadec-shadow"
+
+clang++ \
+  "${SHADOW_CLANG_ARGS[@]}" \
+  -I "${DIR}/src/model" \
+  -I "${FMGC_LAB_DIR}" \
+  -I "${FMGC_LAB_DIR}/readable" \
+  "${DIR}/src/shadow/FadecShadow.cpp" \
+  "${FMGC_LAB_DIR}"/readable/fadec/*.cpp
 
 popd
 
@@ -228,4 +266,6 @@ wasm-ld \
   -lc++ -lc++abi \
   ${DIR}/obj/*.o \
   ${DIR}/obj/fmgc-shadow/*.o \
+  ${DIR}/obj/fcu-shadow/*.o \
+  ${DIR}/obj/fadec-shadow/*.o \
   -o $OUTPUT

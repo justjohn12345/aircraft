@@ -76,6 +76,11 @@ class FmgcShadow {
 
   /** The readable computer (tests and diagnostics). */
   const fmgc::readable::FmgcComputer& readable() const { return *readable_; }
+  /**
+   * The readable computer's outputs of the last step() (zero before the first): what the aircraft uses with [FMGC]
+   * READABLE_PRIMARY. Out of line, so Fmgc.cpp needs no readable include.
+   */
+  const fmgc_outputs& readableOutputs() const;
 
  private:
   struct FieldValue {
@@ -163,6 +168,8 @@ class FmgcShadowLog {
   const std::string& path() const { return path_; }
   /** Uses this path instead of the session name, "-" for stdout (native tests). */
   void setPath(std::string path) { path_ = std::move(path); }
+  /** The readable FMGC is the primary ([FMGC] READABLE_PRIMARY): the header says primary=readable. */
+  void setReadablePrimary(bool readablePrimary) { readablePrimary_ = readablePrimary; }
 
  private:
   std::FILE* open();
@@ -170,6 +177,7 @@ class FmgcShadowLog {
   std::string directory_;
   std::string path_;
   bool headerWritten_ = false;
+  bool readablePrimary_ = false;
   bool firstReported_[2] = {false, false};
   std::string sessionFdr_;
 };

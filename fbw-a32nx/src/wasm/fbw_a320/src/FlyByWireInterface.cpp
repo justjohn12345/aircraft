@@ -53,6 +53,15 @@ void FlyByWireInterface::disconnect() {
     FmgcShadow* shadows[2] = {fmgcs[0].getShadow(), fmgcs[1].getShadow()};
     fmgcShadowLog->writeSummary(shadows, 2);
   }
+  // FCU and FADEC shadow modes: end-of-session summaries
+  if (fcuShadowLog) {
+    shadow::ShadowChecker* units[1] = {&fcu.getShadow()->checker()};
+    fcuShadowLog->writeSummary(units, 1);
+  }
+  if (fadecShadowLog) {
+    shadow::ShadowChecker* units[2] = {&fadecShadows[0]->checker(), &fadecShadows[1]->checker()};
+    fadecShadowLog->writeSummary(units, 2);
+  }
 
   // terminate flight data recorder
   flightDataRecorder.terminate();
@@ -219,9 +228,9 @@ bool FlyByWireInterface::update(double sampleTime) {
                               fadecs, fcu);
   }
 
-  // FMGC shadow mode: log new mismatches with this frame's recording, update the mismatch counters
-  if (fmgcShadowEnabled) {
-    result &= updateFmgcShadow();
+  // shadow modes: log new mismatches with this frame's recording, update the mismatch counters
+  if (fmgcShadowEnabled || fcuShadowEnabled || fadecShadowEnabled) {
+    result &= updateShadows();
   }
 
   // if default AP is on -> disconnect it
@@ -269,18 +278,48 @@ void FlyByWireInterface::loadConfiguration() {
   // --------------------------------------------------------------------------
   // load values - FMGC
   fmgcShadowEnabled = INITypeConversion::getBoolean(iniStructure, "FMGC", "SHADOW_ENABLED", false);
+  fmgcReadablePrimary = INITypeConversion::getBoolean(iniStructure, "FMGC", "READABLE_PRIMARY", false);
+  // the readable FMGC only runs inside the shadow, and the generated one then is the shadow: READABLE_PRIMARY implies it
+  fmgcShadowEnabled = fmgcShadowEnabled || fmgcReadablePrimary;
 
   // print configuration into console
   std::printf("WASM: FMGC      : SHADOW_ENABLED                       = %d\n", fmgcShadowEnabled);
+  std::printf("WASM: FMGC      : READABLE_PRIMARY                     = %d\n", fmgcReadablePrimary);
 
   if (fmgcShadowEnabled) {
     // before the first FMGC step, so both computers start from power-up
     for (int i = 0; i < 2; i++) {
-      fmgcs[i].enableShadow();
+      fmgcs[i].enableShadow(fmgcReadablePrimary);
       idFmgcShadowMismatches[i] = std::make_unique<LocalVariable>("A32NX_FMGC_" + std::to_string(i + 1) + "_SHADOW_MISMATCHES");
       idFmgcShadowMismatches[i]->set(0);
     }
     fmgcShadowLog = std::make_unique<FmgcShadowLog>("\\work\\");
+    fmgcShadowLog->setReadablePrimary(fmgcReadablePrimary);
+  }
+
+  // --------------------------------------------------------------------------
+  // load values - FCU and FADEC shadow modes
+  fcuShadowEnabled = INITypeConversion::getBoolean(iniStructure, "FCU", "SHADOW_ENABLED", false);
+  fadecShadowEnabled = INITypeConversion::getBoolean(iniStructure, "FADEC", "SHADOW_ENABLED", false);
+
+  // print configuration into console
+  std::printf("WASM: FCU       : SHADOW_ENABLED                       = %d\n", fcuShadowEnabled);
+  std::printf("WASM: FADEC     : SHADOW_ENABLED                       = %d\n", fadecShadowEnabled);
+
+  // before the first FCU / FADEC step, so both computers start from power-up
+  if (fcuShadowEnabled) {
+    fcu.enableShadow();
+    idFcuShadowMismatches = std::make_unique<LocalVariable>("A32NX_FCU_SHADOW_MISMATCHES");
+    idFcuShadowMismatches->set(0);
+    fcuShadowLog = FcuShadow::makeLog("\\work\\");
+  }
+  if (fadecShadowEnabled) {
+    for (int i = 0; i < 2; i++) {
+      fadecShadows[i] = std::make_unique<FadecShadow>(i + 1);
+      idFadecShadowMismatches[i] = std::make_unique<LocalVariable>("A32NX_FADEC_" + std::to_string(i + 1) + "_SHADOW_MISMATCHES");
+      idFadecShadowMismatches[i]->set(0);
+    }
+    fadecShadowLog = FadecShadow::makeLog("\\work\\");
   }
 
   // --------------------------------------------------------------------------
@@ -1744,19 +1783,42 @@ bool FlyByWireInterface::updateFcdc(double sampleTime, int fcdcIndex) {
   return true;
 }
 
-bool FlyByWireInterface::updateFmgcShadow() {
+bool FlyByWireInterface::updateShadows() {
   // index of this frame's record in the current flight data recorder file, -1 if this frame was not recorded
   const unsigned long long fdrRecords = flightDataRecorder.getTotalRecords();
   const long fdrRecord = fdrRecords != fmgcShadowLastFdrRecords ? flightDataRecorder.getRecordsInCurrentFile() - 1 : -1;
   fmgcShadowLastFdrRecords = fdrRecords;
+  const std::string& fdrFile = flightDataRecorder.getCurrentFilename();
 
-  FmgcShadow* shadows[2] = {fmgcs[0].getShadow(), fmgcs[1].getShadow()};
-  fmgcShadowLog->update(shadows, 2, flightDataRecorder.getCurrentFilename(), fdrRecord);
+  if (fmgcShadowEnabled) {
+    FmgcShadow* shadows[2] = {fmgcs[0].getShadow(), fmgcs[1].getShadow()};
+    fmgcShadowLog->update(shadows, 2, fdrFile, fdrRecord);
 
-  for (int i = 0; i < 2; i++) {
-    const double mismatches = static_cast<double>(shadows[i]->mismatchFrames());
-    if (idFmgcShadowMismatches[i]->get() != mismatches) {
-      idFmgcShadowMismatches[i]->set(mismatches);
+    for (int i = 0; i < 2; i++) {
+      const double mismatches = static_cast<double>(shadows[i]->mismatchFrames());
+      if (idFmgcShadowMismatches[i]->get() != mismatches) {
+        idFmgcShadowMismatches[i]->set(mismatches);
+      }
+    }
+  }
+
+  if (fcuShadowEnabled) {
+    shadow::ShadowChecker* units[1] = {&fcu.getShadow()->checker()};
+    fcuShadowLog->update(units, 1, fdrFile, fdrRecord);
+    const double mismatches = static_cast<double>(units[0]->mismatchFrames());
+    if (idFcuShadowMismatches->get() != mismatches) {
+      idFcuShadowMismatches->set(mismatches);
+    }
+  }
+
+  if (fadecShadowEnabled) {
+    shadow::ShadowChecker* units[2] = {&fadecShadows[0]->checker(), &fadecShadows[1]->checker()};
+    fadecShadowLog->update(units, 2, fdrFile, fdrRecord);
+    for (int i = 0; i < 2; i++) {
+      const double mismatches = static_cast<double>(units[i]->mismatchFrames());
+      if (idFadecShadowMismatches[i]->get() != mismatches) {
+        idFadecShadowMismatches[i]->set(mismatches);
+      }
     }
   }
 
@@ -2738,6 +2800,11 @@ bool FlyByWireInterface::updateFadec(double sampleTime, int fadecIndex) {
     // step the model -------------------------------------------------------------------------------------------------
     fadecs[fadecIndex].setExternalInputs(&fadecInputs[fadecIndex]);
     fadecs[fadecIndex].step();
+
+    if (fadecShadows[fadecIndex]) {
+      // Same inputs as the generated step; compare only, the outputs below are unchanged.
+      fadecShadows[fadecIndex]->step(fadecInputs[fadecIndex].in, fadecs[fadecIndex].getExternalOutputs().out);
+    }
 
     // get output from model ------------------------------------------------------------------------------------------
     fadecOutputs[fadecIndex] = fadecs[fadecIndex].getExternalOutputs().out.output;

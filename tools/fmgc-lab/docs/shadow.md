@@ -1,9 +1,16 @@
-# FMGC shadow mode (Phase 6a)
+# Shadow mode: FMGC (Phase 6a), FCU and FADEC, readable FMGC primary (Phase 6b)
 
 The readable FMGC (`readable/fmgc.{h,cpp}`, `fmgc::readable::FmgcComputer`) runs in the sim alongside the generated
 `FmgcComputer`, on exactly the inputs the generated one got, every frame, for FMGC 1 and FMGC 2. Every output leaf is
-compared by bit pattern. A frame where anything differs is counted and logged so it can be reproduced offline. The
-aircraft only ever uses the generated outputs: the readable outputs are compared, never read by anything else.
+compared by bit pattern. A frame where anything differs is counted and logged so it can be reproduced offline. By
+default the aircraft only ever uses the generated outputs: the readable outputs are compared, never read by anything
+else.
+
+The readable FCU and the readable FADECs have the same shadow mode (own ini switches, logs and L:vars), see
+[FCU and FADEC shadow mode](#fcu-and-fadec-shadow-mode). With `[FMGC] READABLE_PRIMARY` the roles of the two FMGCs are
+swapped: the readable FMGC flies and the generated one is the shadow, see
+[Readable FMGC primary (Phase 6b)](#readable-fmgc-primary-phase-6b). Everything up to those sections describes the FMGC
+shadow; the FCU and FADEC shadows follow the same design.
 
 ## Files
 
@@ -11,7 +18,7 @@ aircraft only ever uses the generated outputs: the readable outputs are compared
 |---|---|
 | `fbw-a32nx/src/wasm/fbw_a320/src/fmgc/FmgcShadow.{h,cpp}` | `FmgcShadow` (one per FMGC: owns a readable computer, compares, counts, keeps episode details) and `FmgcShadowLog` (the log file and console lines). Plain C++, no MSFS SDK: the lab builds the same file natively. |
 | `fbw-a32nx/src/wasm/fbw_a320/src/fmgc/FmgcOutputLeaves.gen.h` | Generated, committed: every scalar leaf of `fmgc_outputs` (1017: name, offset, size, kind) as a constexpr table, plus `static_assert(sizeof(fmgc_outputs) == 3808)`. |
-| `fbw-a32nx/src/wasm/fbw_a320/src/fmgc/Fmgc.{h,cpp}` | `enableShadow()`, and after the generated step: `if (shadow) shadow->step(modelInputs.in, fmgcComputer.getExternalOutputs().out);` |
+| `fbw-a32nx/src/wasm/fbw_a320/src/fmgc/Fmgc.{h,cpp}` | `enableShadow(readablePrimary)`, and after the generated step: `if (shadow) shadow->step(modelInputs.in, fmgcComputer.getExternalOutputs().out);` (plus the readable-primary swap, Phase 6b) |
 | `fbw-a32nx/src/wasm/fbw_a320/src/FlyByWireInterface.{h,cpp}` | ini switch, L:vars, the per-frame log update after the flight data recorder, the summary in `disconnect()`. |
 | `fbw-a32nx/src/wasm/fbw_a320/src/recording/FlightDataRecorder.{h,cpp}` | Three getters (current file name, records in it, records in the session) so a log record can name its `.fdr` file and record index. What is recorded is unchanged. |
 | `fbw-a32nx/src/wasm/fbw_a320/build.sh` | Compiles `FmgcShadow.cpp` and `tools/fmgc-lab/readable/*.cpp` (all but `*_test.cpp`) into the module. |
@@ -140,7 +147,7 @@ and at the end of the session `WASM: FMGC SHADOW: FMGC 1 14324 frames, 0 mismatc
 
 ```
 # FMGC shadow log: readable FMGC (tools/fmgc-lab/readable) vs generated FmgcComputer, ...
-FMGC_SHADOW_LOG version=1 leaves=1017 output_bytes=3808 session_fdr=2026-11-08-01-12-39.fdr created_utc=2026-11-15-15-29-27
+FMGC_SHADOW_LOG version=1 leaves=1017 output_bytes=3808 session_fdr=2026-11-08-01-12-39.fdr created_utc=2026-11-15-15-29-27 primary=generated
 MISMATCH unit=1 episode=1 frame=8595 sim_time=127.721136 running=1 fields=1 listed=1 fdr=2026-11-08-01-12-39.fdr fdr_record=8594 utc=2026-11-15-15-29-27
   FIELD name=ap_fd_logic.active_lateral_law kind=enum class=value generated=1 readable=0 generated_bits=0x00000001 readable_bits=0x00000000
   INPUTS dt=0.011694099754095078 simulation_time=127.72113616939168 monotonic_time=110.24372700508684 slew_on=0 pause_on=0 tracking_mode_on_override=0 tailstrike_protection_on=0 computer_running=1
@@ -264,3 +271,142 @@ Results (2026-11-15, 22 recordings):
   and an SSM (`discrete_word_1.SSM`) is reported as exactly one mismatching frame and one episode, with the `MISMATCH`,
   `FIELD`, `INPUTS`, `END`, `SUMMARY` and `COUNT` lines; the readable `dt` × 1.5 on one frame is reported from that
   frame on and reaches computed outputs (flight director, flare law, FMGC A bus pitch command).
+
+Rerun 2026-11-18 (30 recordings, `POWER_SEEDS=1`, with the FCU/FADEC and readable-primary changes): FMGC native 60 plain
+runs and 60 power runs, 8.72 M frames each, 0 mismatching; wasm the same (8.72 M plain + 8.72 M power frames), stack
+depth unchanged at 5856 bytes; both self-tests pass. Cost per FMGC and frame on this corpus: native generated 2.28 µs,
+shadow 2.28 µs (readable 2.04 + comparison 0.24); wasm (V8) generated 2.13 µs, shadow 2.48 µs.
+
+## FCU and FADEC shadow mode
+
+The readable FCU (`readable/fcu/`, `fcu::readable::FcuComputer`, one unit) and the readable FADECs
+(`readable/fadec/`, `fadec::readable::FadecComputer`, engine 1 and 2) shadow the generated `FcuComputer` and the two
+`FadecComputer`s exactly as the readable FMGC shadows the generated one: stepped after the generated step on the same
+inputs, every output leaf compared by bit pattern, free-running after a mismatch, mismatches grouped in episodes and
+logged, memory fixed at construction, no allocation or I/O in `step()`. The aircraft only uses the generated outputs.
+
+### Files
+
+| File | What |
+|---|---|
+| `fbw_a320/src/shadow/ShadowChecker.{h,cpp}` | `shadow::ShadowChecker`: the comparison core of FmgcShadow made independent of the output type (leaf table, output size and whether the inputs have `base_sim_data` are constructor arguments; per-leaf arrays allocated once). `shadow::ShadowLog`: the log file and console lines for one computer type. FmgcShadow is unchanged and keeps its own copy of this logic (porting it onto the core would change nothing it does, but was left out to keep the FMGC shadow exactly as tested). |
+| `fbw_a320/src/shadow/FcuShadow.{h,cpp}`, `FadecShadow.{h,cpp}` | Own the readable computer, build the frame's `FrameInputs`, call the checker; `makeLog()`. |
+| `fbw_a320/src/shadow/FcuOutputLeaves.gen.h`, `FadecOutputLeaves.gen.h` | Generated, committed: the 357 leaves of `fcu_outputs` (1104 bytes) and the 112 leaves of `athr_out` (576 bytes), `gen_leaf_table.py --root fcu_outputs --namespace fcu_shadow` / `--root athr_out --namespace fadec_shadow` (shared `shadow::Leaf` type). The lab build checks both (target `unit-shadow-leaves-check`). |
+| `fbw_a320/src/fcu/Fcu.{h,cpp}` | `enableShadow()`, and after the generated step `if (shadow) shadow->step(modelInputs.in, fcuComputer.getExternalOutputs().out);` (before the wrapper sets the FCU 1/2 healthy bits on its copy of the bus). |
+| `fbw_a320/src/FlyByWireInterface.{h,cpp}` | `[FCU]` / `[FADEC] SHADOW_ENABLED`, the two `FadecShadow`s, after each generated FADEC step `fadecShadows[i]->step(fadecInputs[i].in, fadecs[i].getExternalOutputs().out)`, L:vars, `updateShadows()` (was `updateFmgcShadow()`: one FDR record index per frame for all three logs), summaries in `disconnect()`. |
+| `fbw_a320/build.sh` | Two more compiles into their own object folders (`obj/fcu-shadow`, `obj/fadec-shadow`): `readable/`, `readable/fcu/` and `readable/fadec/` each have an `output_packing.cpp`. `tools/fmgc-lab/readable` is on their include path (the FCU/FADEC blocks include the FMGC's `blocks.h`). The three shadow compiles share one flag array; the flags are the ones the FMGC shadow compile had. The lab's CMake fails if `READABLE_FCU_SOURCES` / `READABLE_FADEC_SOURCES` differ from the `readable/fcu/*.cpp` / `readable/fadec/*.cpp` globs build.sh compiles. |
+| `tools/fmgc-lab/src/fcu_shadow_test.cpp`, `fadec_shadow_test.cpp`, `shadow_unit_test.h` | Native (and wasm) drivers and self-tests: `build/fcu-shadow-test-<variant>`, `build/fadec-shadow-test-<variant>`. |
+
+### Switches, outputs
+
+```ini
+[FCU]
+SHADOW_ENABLED = true
+[FADEC]
+SHADOW_ENABLED = true
+```
+
+Both default `false` (console `WASM: FCU       : SHADOW_ENABLED = 0|1`, same for FADEC); off, no shadow object, L:var or
+log exists. On, `loadConfiguration()` creates them before the first step, so both computers start from power-up:
+
+- FCU: the readable FCU is `initialize()`d like the generated one (`Fcu::Fcu()`). `computer_running` comes from the
+  wrapper's FCU 1/2 self-monitoring as for the generated FCU. With `[MODEL] FCU_DISABLED` the FCU is not stepped, nor its
+  shadow.
+- FADEC: the wrapper never calls the generated `initialize()` (it only constructs `FadecComputer`); every initial
+  condition is 0, so a constructed generated FADEC equals the readable one after its `initialize()` (`docs/fadec.md`).
+  A FADEC replaced by client data (`[MODEL] FADEC_DISABLED`) is not stepped, nor its shadow.
+- L:vars `A32NX_FCU_SHADOW_MISMATCHES`, `A32NX_FADEC_1_SHADOW_MISMATCHES`, `A32NX_FADEC_2_SHADOW_MISMATCHES`
+  (mismatching frames).
+- Logs `<session fdr name>.fcu-shadow.log`, `<session fdr name>.fadec-shadow.log` in the work folder, the FMGC log's
+  format with header `FCU_SHADOW_LOG` / `FADEC_SHADOW_LOG` (version 1, `leaves`, `output_bytes`), `unit=1` for the FCU,
+  `unit=1|2` = engine for the FADECs. The FADEC inputs have no `monotonic_time` and no `base_sim_data`, so FADEC
+  `MISMATCH` records have no `running=`, `INPUTS` has `dt` and `simulation_time` only, `SUMMARY` has no
+  `running_frames`/`restarts` and there is no `UNRECORDED` line. Console: `WASM: FCU SHADOW: first mismatch ...`,
+  `WASM: FADEC 1 SHADOW: ...`.
+
+### Reproducing offline
+
+Recordings with the FCU record (interface 3209001 and later) hold the FCU model inputs of each frame; 3209004 holds both
+FADECs' model inputs. The shadow tests replay them (`src/fcu_drive.h`, `src/fadec_drive.h`); on older recordings they
+use the lab's synthetic drive, which tests the checkers but is not the sim's input history.
+
+```sh
+build/fcu-shadow-test-stock [--log FILE] [--time] [--synthetic] [--power SEED] file.fdr...
+build/fadec-shadow-test-stock [--log FILE] [--time] [--synthetic] file.fdr...
+build/fcu-shadow-test-stock --self-test [--log-dir DIR] file.fdr        # same for fadec-shadow-test
+build/fcu-check-stock file.fdr      # then the differential checker: first diverging hidden memory
+```
+
+The self-tests: the committed leaf table equals the lab's leaf list (`fcu_fields.gen.h` / `fadec_fields.gen.h`); a clean
+run reports nothing; one bit flipped on one frame in a float, a bool, an enum and an SSM (FCU
+`bus_outputs.selected_alt_ft.Data`, `discrete_outputs.afs_outputs.ap_1_light_on`, `logic.capt_efis.efis_filter`,
+`bus_outputs.fcu_discrete_word_1.SSM`; FADEC 1 `output.N1_c_percent`, `output.athr_control_active`,
+`output.thrust_limit_type`, `fadec_bus_output.ecu_status_word_3.SSM`, FADEC 2 untouched) is exactly one mismatching
+frame and one episode with all log lines; a perturbed readable input on one frame (FCU: ALT knob +3 turns, FADEC: dt x
+1.5) is reported from that frame on and reaches computed outputs (FCU: `logic.afs.alt_display_value`, ...; FADEC:
+`output.sim_throttle_lever_pos`). The ALT knob replaces the dt perturbation for the FCU because dt only reaches FCU
+outputs while a timer runs.
+
+### Results and cost (2026-11-18, 30 recordings)
+
+- FCU: 30 plain runs, 4.36 M frames, 0 mismatching frames (5 recordings with recorded FCU inputs: 3209001, 3209002,
+  2 x 3209003, 3209004; 25 synthetic), and 30 runs with power episodes (`--power 1`), 4.36 M frames, 0 mismatching.
+- FADEC: 30 runs x 2 engines, 8.72 M FADEC-frames, 0 mismatching (recorded inputs on the 3209004 recording, synthetic on
+  the others).
+- Both self-tests pass, native and wasm.
+- wasm (`build-shadow-wasm.sh`, MSFS sysroot, the module's flags; `check-shadow-wasm-corpus.sh`, node 26 / V8): the same
+  FCU (plain and power) and FADEC runs, 4.36 M + 4.36 M FCU frames and 8.72 M FADEC-frames, 0 mismatching.
+
+Per unit and frame, native (gcc -O2), mean over the corpus:
+
+| | generated step | readable step | comparison | shadow total |
+|---|---|---|---|---|
+| FCU | 0.45 µs | 0.16 µs | 0.13 µs | 0.30 µs |
+| FADEC (per engine) | 0.073 µs | 0.053 µs | 0.021 µs | 0.074 µs |
+| FCU, wasm (V8) | 0.39 µs | 0.31 µs | 0.15 µs | 0.45 µs |
+| FADEC, wasm (V8) | 0.11 µs | 0.088 µs | 0.043 µs | 0.13 µs |
+
+So about 0.45 µs per frame for the FCU and both FADECs together, a quarter of one FMGC shadow. The comparison is a
+loop over a runtime-sized mask (the FMGC's is compile-time sized), which is why the FCU comparison costs nearly as much
+as its readable step; still well under a microsecond. Memory, allocated once: FCU shadow about 16 KB (16 episode
+records of 504 bytes, 357 x 20 bytes of per-leaf counters, the 1104-byte mask) plus the readable FCU (1.8 KB); FADEC
+shadow about 11 KB per engine plus the readable FADEC (0.7 KB). `fbw.wasm` (after `wasm-opt -O1`, as the build
+produces it): 1 441 628 bytes, +53 kB on the FMGC-shadow build's 1 388 631 (the leaf names are about 19 kB of it).
+
+## Readable FMGC primary (Phase 6b)
+
+```ini
+[FMGC]
+READABLE_PRIMARY = true
+```
+
+Default `false`. When `true`, the readable FMGC's outputs are the ones the aircraft uses and the generated
+`FmgcComputer` is the shadow:
+
+- `READABLE_PRIMARY` implies the FMGC shadow (`SHADOW_ENABLED` is forced on: the readable FMGC lives in `FmgcShadow`).
+  Console at load: `SHADOW_ENABLED = 1`, `READABLE_PRIMARY = 1`.
+- `Fmgc::update()` is unchanged up to the shadow step: power supply monitoring, self-test, `computer_running`, the
+  generated step, `modelOutputs` from the generated outputs, `shadow->step()` (readable step + comparison, same
+  episodes and log). Then, only with `READABLE_PRIMARY`, `modelOutputs = shadow->readableOutputs();`.
+  `getBusOutputs()` / `getDiscreteOutputs()` (what the other computers and the FCU get) read `modelOutputs` as before,
+  and `getDebugOutputs()` (the flight data recorder, the autoland debug L:vars) returns the readable outputs. So
+  restart, `computer_running`, self-test and initialisation semantics are exactly today's: both computers are created
+  and initialised at the same points and step on the same inputs every frame; only which of the two output structs is
+  read changes.
+- `READABLE_PRIMARY = false`: the swap is a not-taken branch; outputs, recording and behaviour are as before. The FMGC
+  log header gains `primary=generated|readable` (an added key; format version still 1) and the end-of-session console
+  line says `FMGC SHADOW (readable primary)` when the readable FMGC flies.
+- Why both still run: the generated FMGC as shadow keeps proving the swap invisible in flight; a mismatch is logged the
+  same way (the `FIELD` lines still say `generated=` / `readable=`). After a mismatch the aircraft keeps flying on the
+  readable FMGC (free-running, no fallback to the generated one): a shadow mismatch with the readable FMGC primary means
+  the aircraft is now flying behaviour the stock build would not, which the log pinpoints.
+
+Test (`fmgc-shadow-test --primary-test [--unit 1|2] [--power SEED] [--log FILE] file.fdr`, built when the lab's model
+variant is the repository's own `FmgcComputer`, since it compiles the sim wrapper `fmgc/Fmgc.cpp`): three copies of the
+wrapper on a recording's inputs (generated primary without and with the shadow, readable primary), the wrapper's power
+input following the replayed `computer_running` (with `--power`, the power episodes of `src/scenario_power.h`, so
+outages, self-tests and restarts run); every frame their `getBusOutputs()`, `getDiscreteOutputs()` and
+`getDebugOutputs()` must be bit-identical, both shadows report 0 mismatches, the debug outputs of the readable-primary
+wrapper must be the readable computer's (address check, so the test cannot pass with the swap unwired) and the log
+header says `primary=readable`. Result (2026-11-18): 120 runs (30 recordings x FMGC 1/2 x plain/`--power 1`), 17.4 M
+frames (16.1 M healthy, 6774 health changes), 0 differing frames.
