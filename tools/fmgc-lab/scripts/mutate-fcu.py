@@ -19,7 +19,8 @@ UNIT=fadec: the same for the readable FADEC (readable/fadec/, fadec-check-stock,
 bit numbers of the ECU bus packing): scripts/mutate-fadec.sh
 UNIT=fac: the readable FAC (readable/fac/, fac-check-stock, build/mutants-fac): also the integer constants (ARINC bit
 numbers, + 1); not the table rows (lines with 4 or more numbers) or the buffet table header: scripts/mutate-fac.sh
-BUILD_JOBS: parallel compiles per mutant build (default 4).
+BUILD_JOBS: parallel compiles per mutant build (default 4). MUTANT_TIMEOUT: seconds per run before a hanging mutant
+counts as caught (default 600).
 """
 import json
 import os
@@ -157,12 +158,21 @@ if UNIT == 'fac':
     ]
 
 
+TIMEOUT = float(os.environ.get('MUTANT_TIMEOUT', '600'))  # a mutant that hangs (e.g. an endless search loop) is caught
+
+
 def caught(binary, files):
     for f in files:
         for c in CONFIGS:
-            r = subprocess.run([binary] + c + [f], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            try:
+                r = subprocess.run([binary] + c + [f], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                   timeout=TIMEOUT)
+            except subprocess.TimeoutExpired:
+                return f'{os.path.basename(f)} {" ".join(c)} (hangs)'
             if r.returncode == 1:
                 return f'{os.path.basename(f)} {" ".join(c)}'
+            if r.returncode != 0:  # a crash (e.g. an out-of-bounds table read) is caught too
+                return f'{os.path.basename(f)} {" ".join(c)} (exit {r.returncode})'
     return None
 
 

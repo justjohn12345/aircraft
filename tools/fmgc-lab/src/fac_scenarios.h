@@ -17,7 +17,9 @@
 //                    sweep, disengaged); speeds (weight / CG words, FAC weight fallback, altitude 0-45000 ft, speed
 //                    brakes on either ELAC, gear down); source fallbacks (LGCIU, nose gear disagreement, SFCC with the
 //                    opposite FAC's copy and the gear-down CONF FULL default, slat bit agreement, ADR / IR own -> 3 ->
-//                    none, FMGC RA failed, FMGC selection with every AP combination); SFCC status bit combinations
+//                    none, FMGC RA failed, FMGC selection with every AP combination); SFCC status bit combinations;
+//                    inputs held exactly at the comparison thresholds (radio heights 20 / 100 / 200 ft, 20000 ft, alpha
+//                    at the alpha floor threshold, pitch + pitch rate 10 deg, CAS on breakpoints) and beyond limits
 //  --failures SEED   random episodes (0.1-20 s, one or both FACs): any ARINC word the FAC reads gets a random SSM and
 //                    optionally random data (NaN, infinities, 0, huge, scaled, random discrete bits)
 //  --discretes SEED  random episodes: any discrete input flipped (unit 1 included), analog positions (incl. NaN),
@@ -262,9 +264,9 @@ class ScriptScenario {
   }
 
  private:
-  static constexpr int kPhases = 10;
+  static constexpr int kPhases = 11;
   static double duration(int p) {
-    static const double d[kPhases] = {40, 60, 56, 20, 60, 30, 40, 50, 60, 25};
+    static const double d[kPhases] = {40, 60, 56, 20, 60, 30, 40, 50, 60, 25, 92};
     return d[p];
   }
 
@@ -423,6 +425,9 @@ class ScriptScenario {
         }
         break;
       }
+      case 10:  // exact thresholds
+        boundaries(in, t);
+        break;
       default: {  // SFCC status word bit combinations, configuration at intermediate angles
         cruise(in, 180.0, 2000.0, 4.0);
         const int k = static_cast<int>(t * 2);
@@ -436,6 +441,74 @@ class ScriptScenario {
         }
         break;
       }
+    }
+  }
+
+  /** Inputs held exactly at the thresholds (and just beyond the limits) of the FAC's comparisons. */
+  static void boundaries(fac_inputs (&in)[2], double t) {
+    if (t < 16) {  // alpha floor flight phase: radio height exactly 100 ft in Landing100ft, then in Takeoff100ft
+      cruise(in, 180.0, 3000.0, 5.0);
+      config(in, 1);  // alpha floor 12.5 deg
+      elac(in, true, true, true);
+      const bool takeoff = t >= 8;
+      if (takeoff && t < 10) gear(in, true, true, true);
+      const double ra = !takeoff ? (t < 2 ? 300.0 : (t < 4 ? 50.0 : 100.0)) : (t < 10 ? 0.0 : (t < 12 ? 100.0 : 50.0));
+      radioHeight(in, ra);
+      const double alpha = (!takeoff && t >= 4) || (takeoff && t >= 12) ? 14.0 : 5.0;
+      airData(in, 180.0, 0.3, alpha, 3000.0);
+    } else if (t < 28) {  // filtered alpha exactly at the alpha floor threshold (12.5 deg, CONF 1)
+      cruise(in, 180.0, 3000.0, 12.5);
+      config(in, 1);
+      elac(in, true, true, true);
+      radioHeight(in, 300.0);
+      airData(in, 180.0, 0.3, 12.5, 3000.0);
+    } else if (t < 34) {  // exactly 20000 ft, heavy: VLS from the buffet Mach
+      cruise(in, 250.0, 20000.0, 3.0);
+      weight(in, 180000.0, 0.25);
+      airData(in, 250.0, 0.55, 3.0, 20000.0);
+    } else if (t < 40) {  // CAS beyond the trend (660 kt) and sideslip target (1000 kt) limits, with an N1 difference
+      cruise(in, t < 37 ? 800.0 : 1200.0, 10000.0, 2.0);
+      for (auto& i : in) {
+        i.bus_inputs.fmgc_own_bus.n1_left_percent = no(90.0);
+        i.bus_inputs.fmgc_own_bus.n1_right_percent = no(40.0);
+      }
+    } else if (t < 46) {  // CAS exactly on travel limit breakpoints, then exactly 30 kt with a lateral load factor
+      cruise(in, t < 42 ? 240.0 : (t < 44 ? 320.0 : 30.0), 5000.0, 2.0);
+      inertial(in, 3.0, 0.0, 0.0, 0.05, 1.0, 0.0, 0.0, 200.0, 0.0);
+    } else if (t < 50) {  // pitch-pitch: pitch + pitch rate exactly 10 deg, then radio height exactly 20 ft
+      cruise(in, 140.0, 0.0, 5.0);
+      gear(in, false, false, true);
+      const bool first = t < 48;
+      inertial(in, first ? 8.0 : 9.0, 0.0, 0.0, 0.0, 1.0, 0.0, 2.0, 140.0, 0.0);
+      radioHeight(in, first ? 10.0 : 20.0);
+    } else if (t < 70) {  // low energy: deceleration terms beyond their limits; radio height exactly 100 ft, then 120
+      cruise(in, 143.0, 1500.0, 3.0);
+      config(in, 4);
+      weight(in, 160000.0, 0.3);
+      const double alpha = t < 56 ? 3.0 : 10.3;
+      const double nx = t < 56 ? -0.3 : (t < 62 ? 0.3 : 0.0);
+      const double cas = t < 62 ? 143.0 : 120.0;
+      airData(in, cas, 0.22, alpha, 1500.0);
+      inertial(in, 2.0, 0.0, 0.0, 0.0, 1.0, nx, 0.0, cas, 0.0);
+      radioHeight(in, t < 62 ? 500.0 : (t < 66 ? 100.0 : 120.0));
+    } else if (t < 80) {  // auto trim: radio height exactly 200 ft, then ELAC 2 with bit 26 off / unhealthy
+      cruise(in, 250.0, 3000.0, 3.0);
+      ap(in, true, false);
+      radioHeight(in, 200.0);
+      elac(in, t < 73, true, false, 10.0);
+      for (auto& i : in) {
+        if (t >= 73 && t < 76) setBit(i.bus_inputs.elac_2_bus.discrete_status_word_1, 26, false);
+        if (t >= 76) i.discrete_inputs.elac_2_healthy = false;
+      }
+    } else {  // yaw damper: ELAC 2 with only bit 20 / only bit 26, then yaw rate steps with no ELAC order
+      cruise(in, 220.0, 8000.0, 3.0);
+      elac(in, false, t < 88, false, 8.0);
+      for (auto& i : in) {
+        base_arinc_429& w = i.bus_inputs.elac_2_bus.discrete_status_word_1;
+        if (t < 84) setBit(w, 26, false);
+        if (t >= 84 && t < 88) setBit(w, 20, false);
+      }
+      inertial(in, 3.0, 0.0, std::fmod(t, 1.0) < 0.5 ? 20.0 : -20.0, 0.0, 1.0, 0.0, 0.0, 220.0, 0.0);
     }
   }
 

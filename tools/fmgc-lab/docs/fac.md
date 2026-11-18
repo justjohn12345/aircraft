@@ -199,3 +199,93 @@ max / prot / stall warning rate limiters, VS and VLS factor rate limiters, `take
 washout; the 9 flight path lag filters, the two monostables; the trim reset latch, the reset button edge detector,
 the trim integrator, `icLoad`, the trim order rate limiter, the yaw damper washout and rate limiter, the travel limiter
 rate limiter: 107 values per FAC (every filter's pY, pU and both "not empty" flags).
+
+## Replay: inputs rebuilt from the record (`src/fac_drive.h`, `fac-replay`)
+
+No recording format holds the FAC model inputs: the stock 3200006 record and the personal 3209001-3209004 ones write
+the FAC bus, discretes and analog orders of each FAC (`FacRecord`, the wrapper's outputs) and nothing of its inputs. The
+drive rebuilds them, frame by frame, from what is recorded:
+
+| Input | Source | Exact? |
+|---|---|---|
+| dt | base record (`calculatedSampleTime`, the FAC's dt) | yes |
+| computer_running | the recorded bus: FailureWarning on discrete word 2 = the wrapper's unhealthy output | yes |
+| ADR / IR own, opp, 3 | FMGC 1's recorded inputs of the frame (the same `adrBusOutputs` / `irBusOutputs`) | yes while FMGC 1 runs |
+| ELAC buses, healthy | ELAC records (bus, `digital_output_validated`) | yes |
+| opposite FAC bus / discretes | FAC 1: FAC 2's record of the previous frame (zeros on frame 0); FAC 2: FAC 1's of this frame | yes |
+| FMGC 1 B bus, AP | FMGC 1's record when it ran (the record changed), else zeros / false (the wrapper while not healthy) | yes |
+| FMGC 2 B bus, AP | the next frame's FMGC 1 inputs: health, AP discrete, A bus (discrete words 1-4 and ATS: the same packing, checked on FMGC 1: identical on every frame), RA 2 / RA 1 through the FMGC's RA selection, weight / CG / N1 / FAC weight words from FMGC 1's B bus | yes, except across an active pause gap or at the end of the file (held) |
+| SFCC own bus | from what this FAC reported: own SFCC valid (word 5 bit 21) -> status word with the bits of the reported configuration, the angle words and the actual position word it copied; else FailureWarning | yes (the FAC only reads those) |
+| LGCIU own bus, nose gear | valid (word 5 bit 16) -> the reported main gear / gear down bits, nose bit = nose discrete; else FailureWarning | yes |
+| FAC pushbutton, hydraulics | `rudder_trim_engaged` (FAC 1: = pushbutton), `yaw_damper_avail_for_norm_law` (= pushbutton and pressure); FAC 2 when FAC 1 does not hold the function; otherwise they cannot change an output | yes |
+| trim / travel limiter positions | the copies on the FAC bus (float of the sim's double) | float precision (used only after a restart or while not engaged) |
+| trim switches, reset button | searched per frame: the generated FAC is stepped with none, the previous frame's, left, right, reset, the rest until the trim order and bus word match | yes when found (never needed in the corpus: the trim was never used) |
+
+FMGC 1 does not run during its 30 s start-up self test; in cold-start recordings the FACs run about 10-60 s (345 s in
+one file) before it does, and its record holds nothing then. Those frames get stand-ins: the first running frame's
+ADIRS / RA / FMS words, per FAC switched to the frozen (failed) record while the FAC reports VMAX 0 (no static pressure:
+ADRs off) or flight path angles of exactly 0 (IRs off). They are compared separately ("approximate"), with the 60 s
+after them while filters converge; a record frozen to the end of the file is treated the same way (FMGC 1 switched off
+first, sensor buses stale).
+
+`fac-replay` sets FTZ/DAZ (the sim flushes denormals) and compares every field bit-exact, reporting the largest ULP and
+absolute difference per field (`--ieee` keeps denormals, `--no-trim-search` disables the search, `--trace T0 T1`).
+
+Result (30 recordings, 4.34 M frames, both FACs: 8.27 M FAC frames with known inputs, 0.20 M approximate): on every
+frame with known inputs every bus word, discrete and analog order is bit-exact except
+
+- `speed_trend_kn` on 2.48 M FAC frames, at most 2.4e-7 kt, and
+- `yaw_damper_order_deg` on 19,406 FAC frames (the alternate law, before the ELACs provide an order), at most 2.2e-16 deg,
+
+the two outputs of washout filters, `y = A pY + (u ca - pU ca)`, whose difference of two nearly equal products shows a
+different rounding of either product. The sim fuses some multiply-adds: frame 0 of 2026-11-14-13-57-13 (FAC 1's yaw
+damper order, a single washout step from the input) is exactly `A u + fma(u, ca, -(pU ca))`, and no plain evaluation or
+dt gives it; native clang `-ffp-contract=on -mfma` reproduces that frame but not every later one, so the sim's fusion
+pattern (in fbw.wasm's build or MSFS's compilation of it) is not clang's (finding A1). The rudder trim inputs were
+never needed (the pilot never trimmed the rudder in the corpus). Approximate frames: mismatches in gamma_a / gamma_t /
+VMAX where the stand-in sensor values differ.
+
+## Verification (readable vs generated)
+
+- `fac-check-<variant>` (src/check_fac.cpp): both FACs, generated and readable in lockstep, free-running, every leaf of
+  `fac_outputs` (633 per FAC, the inputs copy included) and the 107 hidden memories per FAC bit-exact every step, plus
+  the power-up outputs and the latch table against the readable latch. Floats by bit pattern, except that two NaNs
+  match whatever their sign and payload: x86 takes a NaN result from whichever operand the compiler put first in a
+  commutative operation (the generated and readable lag filters differ there with NaN inputs), and no FAC output depends
+  on a NaN's sign (bit decoding, comparisons, fmin/fmax, abs ignore it).
+- Inputs: the replay drive above, on any recording; injectors (src/fac_scenarios.h): `--script` (a tour of every
+  function, fallback and threshold), `--failures` (any ARINC word the FAC reads: random SSM, NaN / inf / 0 / huge /
+  scaled data, random discrete bits), `--discretes` (any discrete input incl. unit 1, analog positions incl. NaN, bits of
+  the decoded discrete words), `--power` (restarts: 1 frame, 2-10 frames, 0.2-5 s, 5-60 s, flicker, either or both
+  FACs), `--sim` (dt 0, 1e-6, 0.2-2 s; time jumps; slew, pause, tracking).
+- `scripts/check-fac-corpus.sh` (JOBS=2, SEEDS=2): 511 runs over the 30 recordings, 73.9 M steps x 2 FACs, 31,204
+  restarts, **0 mismatches** (also with the coverage build). Mean step time: generated 0.39 us, readable 0.30 us
+  (gcc -O2).
+- Coverage: see below.
+- Mutation test: see below.
+
+### Rerun
+
+```sh
+TARGETS='fac-check-stock fac-replay-stock fac-dump-params-stock' JOBS=2 tools/fmgc-lab/scripts/build.sh stock=master
+JOBS=2 tools/fmgc-lab/scripts/check-fac-corpus.sh                 # every recording x configs, then fac-replay on each
+FAC_ONLY=1 tools/fmgc-lab/scripts/build-fuzz.sh && COVERAGE=1 JOBS=2 tools/fmgc-lab/scripts/check-fac-corpus.sh
+tools/fmgc-lab/build/fac-replay-stock ~/fdr-corpus/raw/<file>.fdr          # harness vs sim
+tools/fmgc-lab/build/fac-check-stock --script 1 --failures 1 ~/fdr-corpus/raw/<file>.fdr
+JOBS=2 tools/fmgc-lab/scripts/mutate-fac.sh
+```
+
+## FCOM checks (A319/A320/A321 FCOM, 02 MAY 23)
+
+Matches: FAC 1 controls the yaw functions with FAC 2 in standby, taking over per function (DSC-22_40-10); the flight
+envelope function stays active with the FAC pushbutton off (DSC-22_40-10, -30); manual rudder trim 1 deg/s, the knob
+and RESET inactive with the AP engaged (DSC-27-10-20); FAC 2's trim synchronised as a backup; yaw alternate law =
+yaw damping only, +-5 deg (DSC-27); VLS 1.13 VS at take-off and after a touch and go, 1.23 VS after a flap step, 1.28
+VS clean, Mach-corrected above 20000 ft, increased with speed brakes, >= VMCL (DSC-22_10-50-20); F = 1.26 VS(CONF 1+F)
+>= VMCL + 15 shown in CONF 2-3, S = 1.23 VS(clean) >= VMCL + 20 shown in CONF 1 (DSC-22_10-50-20, DSC-31-40); VMAX =
+lowest of VMO/MMO, VLE, VFE; VFE next below 15000 ft; VLS inhibited from touchdown until 10 s after lift-off; speed
+trend = speed in 10 s (DSC-31-40, but A2); alpha floor available from lift-off to 100 ft RA in approach, inhibited
+above M 0.6 (DSC-22_30-50-50, DSC-22_40-30); low energy in CONF 2, 3, FULL between 100 and 2000 ft RA, inhibited by
+alpha floor and both RA failed (DSC-22_40-30).
+
+Differences and doubtful points are findings A2-A17 (`docs/findings.md` section 9).
