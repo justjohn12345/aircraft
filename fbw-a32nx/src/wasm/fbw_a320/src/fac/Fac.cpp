@@ -19,6 +19,7 @@ void Fac::update(double deltaTime, double simulationTime, bool faultActive, bool
   monitorSelf(faultActive);
 
   if (!shortPowerFailure) {
+    lastStepInputs = modelInputs;
     facComputer.setExternalInputs(&modelInputs);
     facComputer.step();
     modelOutputs = facComputer.getExternalOutputs().out;

@@ -36,6 +36,7 @@ void Elac::update(double deltaTime, double simulationTime, bool faultActive, boo
   updateSelfTest(deltaTime);
   monitorSelf(faultActive);
 
+  lastStepInputs = modelInputs;
   elacComputer.setExternalInputs(&modelInputs);
   modelInputs.in.sim_data.computer_running = monitoringHealthy;
   elacComputer.step();

@@ -24,6 +24,9 @@ class Sec {
 
   SecComputer::ExternalInputs_SecComputer_T modelInputs = {};
 
+  // The model inputs of the last model step, exactly as the model saw them (recorded by the flight data recorder).
+  const SecComputer::ExternalInputs_SecComputer_T& getLastStepInputs() const { return lastStepInputs; }
+
  private:
   void initSelfTests();
 
@@ -38,6 +41,7 @@ class Sec {
   // Model
   SecComputer secComputer;
   sec_outputs modelOutputs;
+  SecComputer::ExternalInputs_SecComputer_T lastStepInputs = {};
 
   // Computer Self-monitoring vars
   bool monitoringHealthy;
