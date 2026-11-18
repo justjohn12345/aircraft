@@ -2,9 +2,10 @@
 //
 // SPDX-License-Identifier: GPL-3.0
 
-// The comparison core of the FCU and FADEC shadow modes (personal build; FcuShadow.h, FadecShadow.h): one output struct
-// of a generated computer against the same struct of its readable rewrite (tools/fmgc-lab/readable/fcu, readable/fadec),
-// every leaf compared by bit pattern, every frame. It is the FMGC shadow checker's design (fmgc/FmgcShadow.{h,cpp},
+// The comparison core of the FCU, FADEC and FAC shadow modes (personal build; FcuShadow.h, FadecShadow.h, FacShadow.h):
+// one output struct of a generated computer against the same struct of its readable rewrite (tools/fmgc-lab/readable/
+// fcu, readable/fadec, readable/fac), every leaf compared by bit pattern, every frame (optionally with two NaNs equal
+// whatever their sign and payload: the FAC). It is the FMGC shadow checker's design (fmgc/FmgcShadow.{h,cpp},
 // which keeps its own copy of this logic) made independent of the output type: the leaf table and the output size are
 // constructor arguments. Design, log format and offline reproduction: tools/fmgc-lab/docs/shadow.md.
 //
@@ -58,9 +59,12 @@ class ShadowChecker {
 
   /**
    * unit: 1-based unit number for the log (FADEC: engine). leaves/leafCount: the output struct's leaf table (static
-   * storage), outputBytes: its sizeof. hasSimData: the inputs have time.monotonic_time and base_sim_data (FCU).
+   * storage), outputBytes: its sizeof. hasSimData: the inputs have time.monotonic_time and base_sim_data (FCU, FAC).
+   * nanEqual: two NaNs in a float leaf match whatever their sign and payload (the FAC: x86 and wasm take a NaN result
+   * from whichever operand comes first in a commutative operation, which the generated and readable code order
+   * differently; no FAC output depends on a NaN's sign or payload). Such frames are counted, not reported.
    */
-  ShadowChecker(int unit, const Leaf* leaves, size_t leafCount, size_t outputBytes, bool hasSimData);
+  ShadowChecker(int unit, const Leaf* leaves, size_t leafCount, size_t outputBytes, bool hasSimData, bool nanEqual = false);
   ShadowChecker(const ShadowChecker&) = delete;
   ShadowChecker& operator=(const ShadowChecker&) = delete;
 
@@ -72,6 +76,8 @@ class ShadowChecker {
   uint64_t frames() const { return frames_; }
   /** Frames where at least one output leaf differed. */
   uint64_t mismatchFrames() const { return mismatchFrames_; }
+  /** With nanEqual: frames that matched only because two NaNs were taken as equal. */
+  uint64_t nanEqualFrames() const { return nanEqualFrames_; }
   uint64_t episodes() const { return episodes_; }
   /** Frame (1-based, see frames()) and sim time of the first mismatch; 0 if none. */
   uint64_t firstMismatchFrame() const { return firstMismatchFrame_; }
@@ -115,6 +121,8 @@ class ShadowChecker {
   };
 
   bool differs(const uint8_t* a, const uint8_t* b) const;
+  /** Leaf i differs (by bit pattern; with nanEqual, two NaNs never differ). */
+  bool leafDiffers(size_t i, const uint8_t* a, const uint8_t* b) const;
   void recordMismatch(const uint8_t* generated, const uint8_t* readable, const FrameInputs& in);
 
   const int unit_;
@@ -122,6 +130,7 @@ class ShadowChecker {
   const size_t leafCount_;
   const size_t outputBytes_;
   const bool hasSimData_;
+  const bool nanEqual_;
   std::unique_ptr<uint64_t[]> mask_;  // bytes that belong to a leaf (padding excluded), (outputBytes + 7) / 8 words
 
   uint64_t frames_ = 0;
@@ -136,6 +145,7 @@ class ShadowChecker {
   uint64_t mismatchFrames_ = 0;
   uint64_t episodes_ = 0;
   uint64_t nanOnlyFrames_ = 0;         // every differing leaf: NaN in both, different payload
+  uint64_t nanEqualFrames_ = 0;        // nanEqual: frames that differed only in NaN bits
   uint64_t signedZeroLeafFrames_ = 0;  // leaf-frames +0 vs -0
   uint64_t firstMismatchFrame_ = 0;
   double firstMismatchSimTime_ = 0;

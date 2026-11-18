@@ -1,4 +1,5 @@
 #include "Fac.h"
+#include "../shadow/FacShadow.h"
 
 Fac::Fac(bool isUnit1) : isUnit1(isUnit1) {
   facComputer.initialize();
@@ -6,6 +7,14 @@ Fac::Fac(bool isUnit1) : isUnit1(isUnit1) {
 
 Fac::Fac(const Fac& obj) : isUnit1(obj.isUnit1) {
   facComputer.initialize();
+}
+
+Fac::~Fac() = default;
+
+void Fac::enableShadow() {
+  if (!shadow) {
+    shadow = std::make_unique<FacShadow>(isUnit1 ? 1 : 2);
+  }
 }
 
 // Erase all data in RAM
@@ -22,6 +31,11 @@ void Fac::update(double deltaTime, double simulationTime, bool faultActive, bool
     facComputer.setExternalInputs(&modelInputs);
     facComputer.step();
     modelOutputs = facComputer.getExternalOutputs().out;
+
+    if (shadow) {
+      // Same inputs as the generated step (computer_running included); compare only, the outputs above are unchanged.
+      shadow->step(modelInputs.in, facComputer.getExternalOutputs().out);
+    }
   }
 }
 
