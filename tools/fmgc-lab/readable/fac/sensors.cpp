@@ -89,7 +89,7 @@ void InputConditioning::updateSlatFlap(const fac_inputs& in) {
       sf.configIndex = 0.0F;
     } else if (bit(status, kSfccConf1Bit) && bit(status, kSfccConf1FlapsBit)) {
       sf.configIndex = 1.0F;
-    } else if (bit(status, kSfccConf1Bit) && !bit(status, kSfccConf1FlapsBit)) {
+    } else if (bit(status, kSfccConf1Bit)) {
       sf.configIndex = 2.0F;
     } else if (bit(status, kSfccConf2Bit)) {
       sf.configIndex = 3.0F;

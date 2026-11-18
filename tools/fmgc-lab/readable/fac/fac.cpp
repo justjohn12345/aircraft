@@ -16,7 +16,7 @@ void FacComputer::initialize() {
   alphaFloor_.reset();
   speeds_.reset();
   flightPath_.reset();
-  rudderTrim_ = RudderTrim{};
+  rudderTrim_.reset();
   yawDamper_.reset();
   travelLimiter_.reset();
   in_ = fac_inputs{};

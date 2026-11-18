@@ -41,7 +41,8 @@ namespace a429 = fmgc::blocks::a429;
 
 /**
  * RateLimiterGenericVariableTs (79-100): the output follows the input at no more than |up| per second upwards and |lo|
- * per second downwards. Starts at its first input; `reset` makes it the input (no FAC instance resets it).
+ * per second downwards, starting at its first input. (The block's reset input is constant false in every FAC
+ * instance.)
  */
 struct RateLimiter {
   double pY = 0.0;
@@ -49,12 +50,12 @@ struct RateLimiter {
 
   void reset() { primed = false; }
 
-  double update(double u, double up, double lo, double dt, bool resetToInput = false) {
-    if (!primed || resetToInput) {
+  double update(double u, double up, double lo, double dt) {
+    if (!primed) {
       pY = u;
       primed = true;
     }
-    const double y = resetToInput ? u : std::fmax(std::fmin(u - pY, std::abs(up) * dt), -std::abs(lo) * dt) + pY;
+    const double y = std::fmax(std::fmin(u - pY, std::abs(up) * dt), -std::abs(lo) * dt) + pY;
     pY = y;
     return y;
   }

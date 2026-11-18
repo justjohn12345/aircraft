@@ -264,7 +264,7 @@ class ScriptScenario {
  private:
   static constexpr int kPhases = 10;
   static double duration(int p) {
-    static const double d[kPhases] = {40, 60, 50, 20, 60, 30, 40, 50, 60, 25};
+    static const double d[kPhases] = {40, 60, 56, 20, 60, 30, 40, 50, 60, 25};
     return d[p];
   }
 
@@ -292,13 +292,21 @@ class ScriptScenario {
         // radio height through 100 ft both ways, touchdown at the end
         radioHeight(in, t < 20 ? 300.0 : (t < 30 ? 50.0 : (t < 40 ? 150.0 : 300.0)), t > 33 && t < 35 ? kFw : kNo);
         if (t > 55) gear(in, true, true, true);
+        for (auto& i : in) {  // ELAC status words failed with their bits still set
+          if (t > 52 && t < 54) i.bus_inputs.elac_1_bus.discrete_status_word_1.SSM = kFw;
+          if (t > 53 && t < 54) i.bus_inputs.elac_2_bus.discrete_status_word_1.SSM = kFw;
+        }
         break;
       }
       case 2: {  // low energy
         cruise(in, 140.0, 1500.0, 9.0);
         config(in, 3 + static_cast<int>(t / 12) % 3);
         weight(in, 160000.0 + 10000.0 * j, 0.3);
-        elac(in, !(t > 44 && t < 46), !(t > 44 && t < 48), false);
+        elac(in, !(t > 44 && t < 46) && t < 48, !(t > 44 && t < 48), false);
+        if (t > 48 && t < 50) in[0].discrete_inputs.elac_2_healthy = in[1].discrete_inputs.elac_2_healthy = false;
+        for (auto& i : in) {
+          if (t > 50 && t < 52) setBit(i.bus_inputs.elac_2_bus.discrete_status_word_1, 26, false);
+        }
         const double s = std::fmod(t, 12.0);
         const double cas = 150.0 - 6.0 * s;  // through VLS and VLS - 10
         airData(in, cas, 0.22, 4.0 + s, 1500.0);
@@ -312,7 +320,7 @@ class ScriptScenario {
         cruise(in, 140.0, 0.0, 5.0);
         gear(in, t < 10, t < 10, true);
         inertial(in, 4.0 + 0.6 * t, 0.0, 0.0, 0.0, 1.0, 0.0, 2.0 + j, 140.0, 0.0);
-        radioHeight(in, t < 10 ? 0.0 : 2.0 * (t - 10), t > 6 && t < 8.5 ? kNcd : kNo);
+        radioHeight(in, t < 10 ? 0.0 : 2.0 * (t - 10), t > 6 && t < 8.5 ? kNcd : (t > 9 && t < 11.5 ? kFw : kNo));
         ap(in, t > 14 && t < 15, false);
         fmgcBits(in, false, false, t > 16 && t < 17, false);
         break;
@@ -606,7 +614,7 @@ class SimScenario {
   void apply(fac_inputs (&in)[2], double dt) {
     if (left_ <= 0) {
       left_ = rng_.u(0.05, 8.0);
-      kind_ = rng_.irand(6);
+      kind_ = rng_.irand(7);
       value_ = kind_ == 0 ? 0.0 : (kind_ == 1 ? 1e-6 : rng_.u(0.2, 2.0));
       episodes_++;
     }
@@ -618,7 +626,8 @@ class SimScenario {
         i.time.simulation_time += 1000.0;
       } else if (kind_ == 4) {
         i.sim_data.slew_on = true;
-        i.sim_data.pause_on = rng_.chance(0.5);
+      } else if (kind_ == 5) {
+        i.sim_data.pause_on = true;
       } else {
         i.sim_data.tracking_mode_on_override = true;
       }

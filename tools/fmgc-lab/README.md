@@ -360,3 +360,42 @@ runs, 62.9 M steps x 2 FADECs, 0 mismatches; step time generated 0.075 us, reada
 494,560 frames; a corrupted output field is reported. No real 3209004 recording yet: when one exists,
 `build/fadec-replay-stock <file>` proves the harness reproduces the sim, and `check-fadec-corpus.sh` adds recorded-input
 runs for it automatically.
+
+## FAC: replay, readable FAC, differential check
+
+The generated A32NX FAC (`FacComputer`, two instances) the same way: a native build per model variant
+(`fac_model_<variant>`; identical in every variant), a replay of every recording against the recorded FAC outputs, a
+readable rewrite in `readable/fac/` (namespace `fac::readable`) that is bit-exact against the generated code, and a
+differential checker. Spec, inputs, outputs, memories, FCOM checks: `docs/fac.md`; findings A1-A17 in
+`docs/findings.md` section 9; parameters `docs/params-FacComputer.txt`.
+
+```sh
+TARGETS='fac-check-stock fac-replay-stock fac-dump-params-stock' JOBS=2 scripts/build.sh stock=master
+build/fac-replay-stock [--from N] [--to N] [--trace T0 T1] [--no-trim-search] [--ieee] file.fdr
+build/fac-check-stock [--script SEED] [--failures SEED] [--discretes SEED] [--power SEED] [--sim SEED] \
+  [--warm FILE] [--dump STEP] [--time] file.fdr
+JOBS=2 [SEEDS=2] scripts/check-fac-corpus.sh                   # every recording x configs, then fac-replay on each
+FAC_ONLY=1 scripts/build-fuzz.sh && COVERAGE=1 JOBS=2 scripts/check-fac-corpus.sh   # + clang coverage
+JOBS=2 scripts/mutate-fac.sh                                     # mutation test of the checker
+```
+
+- No recording format holds the FAC model inputs (every one, 3200006 to 3209004, records the FAC bus, discretes and
+  analog orders only). `src/fac_drive.h` rebuilds both FACs' inputs from what is recorded: ADIRS buses from FMGC 1's
+  recorded inputs, ELAC buses, the opposite FAC's previous / current outputs, FMGC 1's B bus, FMGC 2's bus and AP
+  discrete from the *next* frame's FMGC 1 inputs (A bus words, RA selection), the SFCC and LGCIU words from what each
+  FAC reported, the pushbutton and hydraulics from its engaged / available discretes, and the rudder trim switches by
+  stepping the generated FAC with candidates until the trim outputs match. Before FMGC 1 first runs (cold starts) the
+  sensor buses are stand-ins (its first running frame's), flagged "approximate".
+- `fac-replay-<variant>` (`src/fac_replay.cpp`): the generated FACs on those inputs against the recorded outputs, with
+  denormals flushed to zero as in the sim; per field: mismatches, max ULP and absolute difference, separately for
+  frames with approximate inputs (and the 60 s after, while filters converge).
+- `fac-check-<variant>` (`src/check_fac.cpp`): generated and readable FACs in lockstep, free-running, every leaf of
+  `fac_outputs` (633 per FAC, inputs copy included) and 107 hidden memories per FAC bit-exact each step (NaNs equal
+  whatever their sign); exit 1 on any mismatch. Injectors (`src/fac_scenarios.h`): scripted tour of every function and
+  fallback, random word failures and data (NaN, inf, huge), discrete flips and analog positions, power cuts (restarts),
+  dt / time / sim flags.
+
+Results (2026-11-18, 30 recordings): `check-fac-corpus.sh` 511 runs, 73.9 M steps x 2 FACs, 31,204 FAC restarts,
+0 mismatches; step time generated 0.39 us, readable 0.30 us. `fac-replay` over 4.34 M frames (8.27 M FAC frames with
+known inputs): every field bit-exact except two washout filter outputs that the sim computes with fused multiply-adds
+(speed trend, max 2.4e-7 kt on 2.48 M FAC frames; yaw damper order, max 2.2e-16 deg on 19,406; finding A1).

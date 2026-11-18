@@ -30,22 +30,21 @@ YawEngagement YawEngagement::compute(const base_fac_discrete_inputs& d) {
   // is not engaged)
   YawEngagement e{};
   e.yawDamperCanEngage = d.yaw_damper_has_hyd_press && d.fac_engaged_from_switch;
-  e.yawDamperHasPriority = d.is_unit_1 || (!d.is_unit_1 && !d.yaw_damper_opp_engaged);
+  e.yawDamperHasPriority = d.is_unit_1 || !d.yaw_damper_opp_engaged;
   e.yawDamperEngaged = e.yawDamperCanEngage && e.yawDamperHasPriority;
   e.rudderTrimCanEngage = d.rudder_trim_actuator_healthy && d.fac_engaged_from_switch;
-  e.rudderTrimHasPriority = d.is_unit_1 || (!d.is_unit_1 && !d.rudder_trim_opp_engaged);
+  e.rudderTrimHasPriority = d.is_unit_1 || !d.rudder_trim_opp_engaged;
   e.rudderTrimEngaged = e.rudderTrimCanEngage && e.rudderTrimHasPriority;
   e.travelLimCanEngage = d.rudder_travel_lim_actuator_healthy && d.fac_engaged_from_switch;
-  e.travelLimHasPriority = d.is_unit_1 || (!d.is_unit_1 && !d.rudder_travel_lim_opp_engaged);
+  e.travelLimHasPriority = d.is_unit_1 || !d.rudder_travel_lim_opp_engaged;
   e.travelLimEngaged = e.travelLimCanEngage && e.travelLimHasPriority;
   return e;
 }
 
 void RudderTrim::reset() {
-  resetLatch_.q = false;
-  resetButton_.reset();
-  reload_ = true;
-  order_.reset();
+  restart();
+  integrator_ = 0.0;
+  resetButton_.previousInput = false;
 }
 
 void RudderTrim::restart() {

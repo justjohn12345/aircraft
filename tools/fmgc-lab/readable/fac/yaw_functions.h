@@ -63,6 +63,7 @@ struct ElacYawCommand {
 
 class RudderTrim {
  public:
+  /** Power-up: everything to its initial value. */
   void reset();
 
   /** Generated 1095-1171. Returns the rudder trim order (laws.rudder_trim_command_deg). */
