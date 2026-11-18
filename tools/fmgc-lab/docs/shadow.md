@@ -1,4 +1,4 @@
-# Shadow mode: FMGC (Phase 6a), FCU and FADEC, readable FMGC primary (Phase 6b)
+# Shadow mode: FMGC (Phase 6a), FCU, FADEC and FAC, readable FMGC primary (Phase 6b)
 
 The readable FMGC (`readable/fmgc.{h,cpp}`, `fmgc::readable::FmgcComputer`) runs in the sim alongside the generated
 `FmgcComputer`, on exactly the inputs the generated one got, every frame, for FMGC 1 and FMGC 2. Every output leaf is
@@ -7,7 +7,8 @@ default the aircraft only ever uses the generated outputs: the readable outputs 
 else.
 
 The readable FCU and the readable FADECs have the same shadow mode (own ini switches, logs and L:vars), see
-[FCU and FADEC shadow mode](#fcu-and-fadec-shadow-mode). With `[FMGC] READABLE_PRIMARY` the roles of the two FMGCs are
+[FCU and FADEC shadow mode](#fcu-and-fadec-shadow-mode), and so do the readable FACs, see
+[FAC shadow mode](#fac-shadow-mode). With `[FMGC] READABLE_PRIMARY` the roles of the two FMGCs are
 swapped: the readable FMGC flies and the generated one is the shadow, see
 [Readable FMGC primary (Phase 6b)](#readable-fmgc-primary-phase-6b). Everything up to those sections describes the FMGC
 shadow; the FCU and FADEC shadows follow the same design.
@@ -372,6 +373,69 @@ as its readable step; still well under a microsecond. Memory, allocated once: FC
 records of 504 bytes, 357 x 20 bytes of per-leaf counters, the 1104-byte mask) plus the readable FCU (1.8 KB); FADEC
 shadow about 11 KB per engine plus the readable FADEC (0.7 KB). `fbw.wasm` (after `wasm-opt -O1`, as the build
 produces it): 1 441 628 bytes, +53 kB on the FMGC-shadow build's 1 388 631 (the leaf names are about 19 kB of it).
+
+## FAC shadow mode
+
+The readable FAC (`readable/fac/`, `fac::readable::FacComputer`, `docs/fac.md`) shadows both generated `FacComputer`s
+exactly as the FCU and FADEC shadows do, on the same comparison core, with one difference: two NaNs in a float leaf
+match whatever their sign and payload (the lab's rule for the FAC: x86 and wasm take a NaN result from whichever operand
+comes first in a commutative operation, the generated and readable lag filters order them differently, and no FAC
+output depends on a NaN's sign or payload). Frames that matched only that way are counted (`NAN_EQUAL unit=N
+frames=M` after each `SUMMARY`), never reported as mismatches. The FCU and FADEC shadows keep comparing NaNs by bit
+pattern.
+
+| File | What |
+|---|---|
+| `fbw_a320/src/shadow/FacShadow.{h,cpp}` | Owns the readable FAC, builds the frame's `FrameInputs` (with `base_sim_data`, like the FCU), calls the checker; `makeLog()`. |
+| `fbw_a320/src/shadow/FacOutputLeaves.gen.h` | Generated, committed: the 633 leaves of `fac_outputs` (2592 bytes; the inputs copy `data.*` included), `gen_leaf_table.py --root fac_outputs --namespace fac_shadow`. The lab build checks it (target `fac-shadow-leaves-check`). |
+| `fbw_a320/src/shadow/ShadowChecker.{h,cpp}` | Constructor argument `nanEqual` (default false: the FCU and FADEC are unchanged). |
+| `fbw_a320/src/fac/Fac.{h,cpp}` | `enableShadow()`, and after the generated step (inside `if (!shortPowerFailure)`) `if (shadow) shadow->step(modelInputs.in, facComputer.getExternalOutputs().out);`. A FAC whose model does not step (power outage over 10 ms, active pause, `[MODEL] FAC_DISABLED`) does not step its shadow either. |
+| `fbw_a320/src/FlyByWireInterface.{h,cpp}` | `[FAC] SHADOW_ENABLED`, L:vars, the log in `updateShadows()`, the summary in `disconnect()`. |
+| `fbw_a320/build.sh`, `CMakeLists.txt` | One more compile into `obj/fac-shadow` (`FacShadow.cpp`, `readable/fac/*.cpp`). The lab's CMake fails if `READABLE_FAC_SOURCES` differs from that glob. |
+| `tools/fmgc-lab/src/fac_shadow_test.cpp` | Native (and wasm) driver and self-test: `build/fac-shadow-test-<variant>`, `build/wasm/fac-shadow-test.wasm`. |
+
+```ini
+[FAC]
+SHADOW_ENABLED = true
+```
+
+Default `false` (console `WASM: FAC       : SHADOW_ENABLED = 0|1`). On, `loadConfiguration()` creates both shadows before
+the first step; the readable FACs are `initialize()`d like the generated ones (`Fac::Fac()`). `computer_running` is the
+wrapper's `facHealthy`, set before the step. L:vars `A32NX_FAC_1_SHADOW_MISMATCHES`, `A32NX_FAC_2_SHADOW_MISMATCHES`
+(mismatching frames); log `<session fdr name>.fac-shadow.log`, header `FAC_SHADOW_LOG`, `unit=1|2` = FAC 1 / 2, with
+`running=`, the full `INPUTS` line and `UNRECORDED` as for the FCU. Console: `WASM: FAC 1 SHADOW: first mismatch ...`.
+
+Offline: recordings of interface 3209005 hold both FACs' model inputs (`src/fac_drive.h` uses them, and does not step a
+FAC that did not step in the sim); older ones get inputs rebuilt from the record (`docs/fac.md`), which tests the
+checker but is not exactly the sim's input history around cold starts.
+
+```sh
+build/fac-shadow-test-stock [--log FILE] [--time] [--synthetic] [--power SEED] file.fdr...   # --synthetic: rebuild
+build/fac-shadow-test-stock --self-test [--log-dir DIR] file.fdr
+build/fac-check-stock file.fdr      # then the differential checker: first diverging hidden memory
+```
+
+The self-test adds the NaN rule (two NaNs of different sign and payload match, a NaN against a number does not) to the
+shared ones; the bit flips are FAC 1 `bus_outputs.v_ls_kn.Data` (float), `discrete_outputs.yaw_damper_engaged` (bool),
+`flight_envelope.v_max_kn` (double; `fac_outputs` has no enum) and `bus_outputs.discrete_word_5.SSM`, the input
+perturbation FAC 1's own ADR CAS + 5 kt (reaches `logic.adr_computation_data.V_ias_kn`, the alpha speeds, ...).
+
+Results (2026-11-18, 30 recordings, `ONLY=fac scripts/check-shadow-corpus.sh`): 60 plain runs (30 recordings x 2 FACs),
+8.67 M FAC-frames, 0 mismatching; 60 runs with power episodes (`--power 1`, 6,122 restarts), 8.67 M FAC-frames, 0
+mismatching; no NaN-equal frame; the self-test passes, native and wasm (the wasm module on the two latest recordings,
+plain and with power episodes: 0 mismatching). Per FAC and frame:
+
+| | generated step | readable step | comparison | shadow total |
+|---|---|---|---|---|
+| FAC, native (gcc -O2, corpus mean) | 0.41 µs | 0.25 µs | 0.18 µs | 0.43 µs |
+| FAC, wasm (V8, two latest recordings) | 0.59 µs | 0.37 µs | 0.18 µs | 0.55 µs |
+
+So about 1.1 µs per frame for both FACs in wasm. Memory, allocated once: per FAC about 23 KB of checker state (16
+episode records of 504 bytes, 633 x 20 bytes of per-leaf counters, the 2592-byte mask) plus the readable FAC (under
+10 KB; its copies of the inputs and outputs are 4.5 KB). Caveat for the sim: the lab found that the sim's FACs (generated code) compute two washout filter outputs (speed
+trend, yaw damper order) with fused multiply-adds (finding A1); if MSFS's compilation of `fbw.wasm` fuses the generated
+and the readable filters differently, the FAC shadow will report those two fields at the rounding level (~1e-7 kt,
+~1e-16 deg). The wasm test under V8 does not fuse and cannot show it.
 
 ## Readable FMGC primary (Phase 6b)
 
