@@ -4633,8 +4633,15 @@ void FmgcComputer::step()
 
     rtb_Switch1_n *= FmgcComputer_P.DiscreteTimeIntegratorVariableTsLimit_Gain;
     rtb_Switch1_n *= rtb_BusAssignment_jmp.data.time.dt;
+    // Fix (personal/fg-athr-thr-reload, fmgc-lab findings F3): a change of A/THR mode did not re-initialise the N1
+    // integrator, so after a deceleration in SPEED at idle (command wound down to the 18 % floor, the FADEC sends no
+    // idle N1) THR CLB started from 18 % and spent ~14 s below the actual N1 with the engines at idle. Reload the
+    // integrator with the actual N1 when THR mode engages while the command is below it.
     FmgcComputer_DWork.icLoad = ((!rtb_BusAssignment_jmp.logic.athr_own_engaged) || rtb_NOT_b || (!rtb_Compare_ji) ||
-      FmgcComputer_DWork.icLoad);
+      FmgcComputer_DWork.icLoad || (FmgcComputer_DWork.Memory_PreviousInput_bh &&
+      (!FmgcComputer_DWork.Delay1_DSTATE.thrust_mode_active) && (FmgcComputer_DWork.Delay_DSTATE_l < std::fmax
+      (rtb_BusAssignment_jmp.data.bus_inputs.fadec_opp_bus.selected_n1_actual_percent.Data,
+       rtb_BusAssignment_jmp.data.bus_inputs.fadec_own_bus.selected_n1_actual_percent.Data))));
     if (FmgcComputer_DWork.icLoad) {
       FmgcComputer_DWork.Delay_DSTATE_f = std::fmax
         (rtb_BusAssignment_jmp.data.bus_inputs.fadec_opp_bus.selected_n1_actual_percent.Data,
