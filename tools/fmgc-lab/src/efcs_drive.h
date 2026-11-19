@@ -280,7 +280,7 @@ class EfcsInputDrive {
       secHealthy_[i] += info.secHealthy[i];
     }
     for (int i = 0; i < 3; i++) {
-      buildSecInputs(i, f, m, prev, first, info);
+      buildSecInputs(i, f, nxt, m, prev, first, info);
       secExt_->in = secIn_[i];
       sec_[i]->setExternalInputs(secExt_.get());
       sec_[i]->step();
@@ -368,7 +368,7 @@ class EfcsInputDrive {
     return l;
   }
 
-  void buildSecInputs(int i, const FdrFrame& f, const FmgcRecord& m, const FdrFrame& prev, bool first,
+  void buildSecInputs(int i, const FdrFrame& f, const FdrFrame* nxt, const FmgcRecord& m, const FdrFrame& prev, bool first,
                       StepInfo& info) {
     using namespace efcs_drive;
     static const FdrFrame* zero = [] {
@@ -433,8 +433,11 @@ class EfcsInputDrive {
       }
     }
     a.capt_roll_stick_pos = -f.base.simulation_input_sidestick_roll_pos;
-    a.spd_brk_lever_pos = f.base.simulation_input_spoilers_are_armed != 0.0 ? -0.05
-                                                                             : f.base.simulation_input_spoilers_handle_pos;
+    // the spoilers handler as the SEC saw it: the recorded handle position / armed flag are the L:vars read at the start
+    // of the frame, written by the previous frame's updateSpoilers(), so the next frame's record holds this frame's
+    const BaseData& lever = nxt ? nxt->base : f.base;
+    a.spd_brk_lever_pos = lever.simulation_input_spoilers_are_armed != 0.0 ? -0.05
+                                                                          : lever.simulation_input_spoilers_handle_pos;
     a.thr_lever_1_pos = f.specific.simulation_input_throttle_lever_1_angle;
     a.thr_lever_2_pos = f.specific.simulation_input_throttle_lever_2_angle;
     if (info.secHealthy[i]) {

@@ -44,8 +44,8 @@ void SecComputer::packOutputs(const Frame& f) {
   const bool word1[19] = {
       d.l_spoiler_1_servo_failed || d.r_spoiler_1_servo_failed,
       d.l_spoiler_2_servo_failed || d.r_spoiler_2_servo_failed,
-      d.l_elev_servo_failed,
-      d.r_elev_servo_failed,
+      d.l_elev_servo_failed != 0,
+      d.r_elev_servo_failed != 0,
       f.spoilerPair1Avail,
       f.spoilerPair2Avail,
       f.leftElevAvail,

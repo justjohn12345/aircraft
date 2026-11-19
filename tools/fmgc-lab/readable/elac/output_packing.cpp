@@ -60,10 +60,10 @@ void ElacComputer::packOutputs(const Frame& f) {
   const base_arinc_429& sec1 = in.bus_inputs.sec_1_bus.discrete_status_word_1;
   const bool lateralNormalOrAbnormal = lateralNormal || f.abnormalCondition;
   const bool word1[19] = {
-      d.l_ail_servo_failed,
-      d.r_ail_servo_failed,
-      d.l_elev_servo_failed,
-      d.r_elev_servo_failed,
+      d.l_ail_servo_failed != 0,
+      d.r_ail_servo_failed != 0,
+      d.l_elev_servo_failed != 0,
+      d.r_elev_servo_failed != 0,
       f.leftAileronAvail,
       f.rightAileronAvail,
       f.leftElevAvail,

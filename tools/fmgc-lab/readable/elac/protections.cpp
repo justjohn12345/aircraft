@@ -71,7 +71,7 @@ void ElacComputer::updateProtections(Frame& f) {
   const double gamma = f.theta - std::cos(0.017453292519943295 * f.phi) * f.alphaFiltered;
   f.normalLawActive = f.activePitchLaw == pitch_efcs_law::NormalLaw || f.activeLateralLaw == lateral_efcs_law::NormalLaw;
 
-  // high speed protection (1142-1151): set above VMO + 6 / MMO + 0.01 (+0 when diving more than 3 deg, finding L6),
+  // high speed protection (1142-1151): set above VMO + 6 / MMO + 0.01 (VMO / MMO when diving more than 3 deg),
   // without AP, in a normal law; reset below VMO / MMO (the low threshold)
   f.noApEngaged = in.discrete_inputs.ap_1_disengaged && in.discrete_inputs.ap_2_disengaged;
   if (f.noApEngaged && f.vIas > std::fmin(blocks::lookup1(gamma, kGammaBp, kHsProtVmo),

@@ -610,6 +610,31 @@ if(FMGC_FUZZ)
   target_compile_options(efcs-pitch-law-cov-check PRIVATE -O2 -ffp-contract=off)
   target_link_libraries(efcs-pitch-law-cov-check PRIVATE efcs_pitch_readable_cov efcs_pitch_model_cov
     -fprofile-instr-generate -static)
+
+  # ELAC and SEC: source-based coverage of ElacComputer.cpp / SecComputer.cpp, the five law .cpp files and the readable
+  # ELAC / SEC / laws, driven by the corpus differential checks (scripts/check-efcs-corpus.sh with COVERAGE=1)
+  set(efcs_cov_flags -O2 -ffp-contract=off -fprofile-instr-generate -fcoverage-mapping)
+  add_library(efcs_model_cov STATIC ${fuzz_dir}/ElacComputer.cpp ${fuzz_dir}/SecComputer.cpp ${fuzz_dir}/PitchNormalLaw.cpp
+    ${fuzz_dir}/PitchAlternateLaw.cpp ${fuzz_dir}/PitchDirectLaw.cpp ${fuzz_dir}/LateralNormalLaw.cpp
+    ${fuzz_dir}/LateralDirectLaw.cpp)
+  target_include_directories(efcs_model_cov PUBLIC ${fuzz_dir})
+  target_compile_options(efcs_model_cov PRIVATE ${efcs_cov_flags})
+  add_library(efcs_model_cov_rest OBJECT ${fuzz_dir}/ElacComputer_data.cpp ${fuzz_dir}/SecComputer_data.cpp)
+  target_include_directories(efcs_model_cov_rest PUBLIC ${fuzz_dir})
+  target_compile_options(efcs_model_cov_rest PRIVATE -O2 -ffp-contract=off)
+  add_library(efcs_readable_cov STATIC ${READABLE_PITCH_LAW_SOURCES} ${READABLE_LATERAL_LAW_SOURCES}
+    ${READABLE_ELAC_SOURCES} ${READABLE_SEC_SOURCES})
+  target_include_directories(efcs_readable_cov PUBLIC ${fuzz_dir} readable readable/fac readable/efcs readable/elac
+    readable/sec)
+  target_compile_options(efcs_readable_cov PRIVATE ${efcs_cov_flags})
+  foreach(unit elac sec)
+    add_executable(${unit}-cov-check src/check_${unit}.cpp ${fuzz_gen}/${unit}_fields.gen.h)
+    target_include_directories(${unit}-cov-check PRIVATE ${fuzz_gen} ${WASM_SRC} src)
+    target_compile_options(${unit}-cov-check PRIVATE -O2 -ffp-contract=off)
+    target_link_libraries(${unit}-cov-check PRIVATE efcs_readable_cov efcs_model_cov
+      $<TARGET_OBJECTS:efcs_model_cov_rest> $<TARGET_OBJECTS:efcs_pitch_model_rest> ZLIB::ZLIB -fprofile-instr-generate
+      -static)
+  endforeach()
 endif()
 
 # Round trip of the personal FDR format with the FCU (3209001): writes a synthetic file and reads it back.

@@ -211,7 +211,8 @@ void ElacComputer::updateActiveLaws(Frame& f) {
                          pitchElacLateralCap == lateral_efcs_law::NormalLaw;
 
   // active laws (1027-1052): normal laws only when both ELACs are capable of them; roll otherwise direct; pitch
-  // otherwise alternate 1 when only roll lost its normal law, else this ELAC's own capability (finding L5)
+  // otherwise alternate 1 when only roll lost its normal law, else this ELAC's own capability; direct when the
+  // pitch ELAC alone has lost the lateral normal law (finding L5)
   if (f.isEngagedInRoll) {
     f.activeLateralLaw = allNormal ? lateral_efcs_law::NormalLaw : lateral_efcs_law::DirectLaw;
   } else {
