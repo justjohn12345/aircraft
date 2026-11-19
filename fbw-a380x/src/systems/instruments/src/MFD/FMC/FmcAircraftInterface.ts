@@ -60,6 +60,10 @@ export class FmcAircraftInterface {
     'L:A380X_FM_APPROACH_HEADWIND_COMPONENT',
     SimVarValueType.String,
   );
+  private static readonly fcuSpdMachDashesVar = RegisteredSimVar.createBoolean(
+    'L:A32NX_FCU_AFS_DISPLAY_SPD_MACH_DASHES',
+  );
+
   private readonly subs = [] as Subscription[];
   private gameState = GameStateProvider.get();
   // ARINC words
@@ -998,6 +1002,9 @@ export class FmcAircraftInterface {
 
   private managedSpeedTargetIsMach = false;
 
+  /** Whether the FCU showed managed speed (dashes) at the last managed speed update, for the engagement edge. */
+  private fcuSpdMachManagedLastUpdate = false;
+
   private holdDecelReached = false;
 
   private holdSpeedTarget: number | null = null;
@@ -1092,8 +1099,10 @@ export class FmcAircraftInterface {
     }
     this.speedsManagedPfd.set(vPfd);
 
-    // Automatically change fcu mach/speed mode
-    if (this.managedSpeedTargetIsMach !== isMach) {
+    // Automatically change fcu mach/speed mode when the managed target changes between speed and Mach, and when managed
+    // speed is engaged (the FCU may have been switched with the SPD/MACH pb in selected speed)
+    const fcuSpdMachManaged = FmcAircraftInterface.fcuSpdMachDashesVar.get();
+    if (this.managedSpeedTargetIsMach !== isMach || (fcuSpdMachManaged && !this.fcuSpdMachManagedLastUpdate)) {
       if (isMach) {
         SimVar.SetSimVarValue('K:AP_MANAGED_SPEED_IN_MACH_ON', 'number', 1);
       } else {
@@ -1101,6 +1110,7 @@ export class FmcAircraftInterface {
       }
       this.managedSpeedTargetIsMach = isMach;
     }
+    this.fcuSpdMachManagedLastUpdate = fcuSpdMachManaged;
   }
 
   public invalidateManagedSpeed() {
