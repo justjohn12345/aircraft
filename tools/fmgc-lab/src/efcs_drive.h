@@ -57,6 +57,7 @@
 
 #define private public
 #include "ElacComputer.h"
+#include "SecComputer.h"
 #undef private
 
 #include "fdr.h"
@@ -143,6 +144,8 @@ class EfcsInputDrive {
     bool hydTransition;       // a hydraulic pressure between 1450 and 1750 psi or a switch change within 2 s
     bool longFrame;           // dt > 0.5 s (a slew or a loading pause before: slew_on unknown)
     int priorityMask;         // the inferred takeover pushbuttons (bit 0 captain, bit 1 F/O)
+    bool secHealthy[3];       // the SEC was healthy (bus not FailureWarning)
+    bool wheelSpeedApprox;    // wheel speeds estimated (an SEC threshold within reach)
   };
 
   EfcsInputDrive(const std::string& path, Options opt = {}) : reader_(path), opt_(opt) {
@@ -155,6 +158,12 @@ class EfcsInputDrive {
       r->initialize();
     }
     for (auto& r : snap_) r = std::make_unique<ElacComputer>();
+    for (auto& r : sec_) {
+      r = std::make_unique<SecComputer>();
+      r->initialize();
+    }
+    secExt_ = std::make_unique<SecComputer::ExternalInputs_SecComputer_T>();
+    for (auto& i : secIn_) std::memset(&i, 0, sizeof(sec_inputs));
     elacExt_ = std::make_unique<ElacComputer::ExternalInputs_ElacComputer_T>();
     for (auto& i : elacIn_) std::memset(&i, 0, sizeof(elac_inputs));
     std::memset(&fmgc2B_, 0, sizeof(fmgc2B_));
@@ -185,6 +194,19 @@ class EfcsInputDrive {
 
   /** The reference (generated) ELACs, stepped with the final inputs of each frame. */
   const ElacComputer& elac(int i) const { return *elac_[i]; }
+  /** The reference (generated) SECs. */
+  const SecComputer& sec(int i) const { return *sec_[i]; }
+  long secHealthyFrames(int i) const { return secHealthy_[i]; }
+  long wheelSpeedApproxFrames() const { return wheelApprox_; }
+
+  /** As next(elac step), also building the three SECs' inputs and stepping the reference SECs. */
+  bool next(const std::function<void(elac_inputs (&)[2], const StepInfo&)>& elacStep,
+            const std::function<void(sec_inputs (&)[3], const StepInfo&)>& secStep) {
+    secStep_ = &secStep;
+    const bool r = next(elacStep);
+    secStep_ = nullptr;
+    return r;
+  }
 
   /**
    * Reads the next recorded frame, builds both ELACs' inputs, steps the reference ELACs and calls `step` with the
@@ -251,6 +273,22 @@ class EfcsInputDrive {
     info.priorityMask = inferPriority(f, info);
     elac_inputs s[2] = {elacIn_[0], elacIn_[1]};
     step(s, info);
+
+    // SECs (after the ELACs in the sim)
+    for (int i = 0; i < 3; i++) {
+      info.secHealthy[i] = f.sec[i].bus_outputs.discrete_status_word_1.SSM != efcs_drive::kFw;
+      secHealthy_[i] += info.secHealthy[i];
+    }
+    for (int i = 0; i < 3; i++) {
+      buildSecInputs(i, f, m, prev, first, info);
+      secExt_->in = secIn_[i];
+      sec_[i]->setExternalInputs(secExt_.get());
+      sec_[i]->step();
+    }
+    if (secStep_) {
+      sec_inputs t[3] = {secIn_[0], secIn_[1], secIn_[2]};
+      (*secStep_)(t, info);
+    }
     frames_++;
     return true;
   }
@@ -309,6 +347,133 @@ class EfcsInputDrive {
     apply(lastPriority_);
     stepElacs();
     return lastPriority_;
+  }
+
+  /** The LGCIU bus as an SEC sees it, from what a FAC reported (word 5: 16 own LGCIU valid, 18 / 19 main gears, 20 a
+   * gear not uplocked) and the gear handle. */
+  static base_lgciu_bus lgciuFromFac(const base_fac_bus& o, bool handleDown) {
+    using namespace efcs_drive;
+    base_lgciu_bus l{};
+    const bool valid = o.discrete_word_2.SSM != kFw && bitOf(o.discrete_word_5, 16);
+    l.discrete_word_1.SSM = l.discrete_word_2.SSM = l.discrete_word_3.SSM = l.discrete_word_4.SSM = valid ? kNo : kFw;
+    if (valid) {
+      setBit(l.discrete_word_2, 13, bitOf(o.discrete_word_5, 18));
+      setBit(l.discrete_word_2, 14, bitOf(o.discrete_word_5, 19));
+      const bool notUplocked = bitOf(o.discrete_word_5, 20);
+      setBit(l.discrete_word_3, 11, notUplocked);
+      setBit(l.discrete_word_3, 12, notUplocked);
+      setBit(l.discrete_word_3, 13, notUplocked);
+      setBit(l.discrete_word_3, 14, !handleDown);
+    }
+    return l;
+  }
+
+  void buildSecInputs(int i, const FdrFrame& f, const FmgcRecord& m, const FdrFrame& prev, bool first,
+                      StepInfo& info) {
+    using namespace efcs_drive;
+    static const FdrFrame* zero = [] {
+      auto* z = new FdrFrame;
+      std::memset(static_cast<void*>(z), 0, sizeof(FdrFrame));
+      return z;
+    }();
+    const FdrFrame& p = first ? *zero : prev;
+    sec_inputs& in = secIn_[i];
+    const SecRecord& own = f.sec[i];
+    in.time = elacIn_[0].time;
+    in.sim_data = {};
+    in.sim_data.computer_running = info.secHealthy[i];
+    in.sim_data.tailstrike_protection_on = false;
+
+    base_sec_discrete_inputs& d = in.discrete_inputs;
+    d = {};
+    d.sec_engaged_from_switch = info.secHealthy[i];
+    d.is_unit_1 = i == 0;
+    d.is_unit_2 = i == 1;
+    d.is_unit_3 = i == 2;
+    if (i < 2) {
+      d.pitch_not_avail_elac_1 = !f.elac[0].discrete_outputs.pitch_axis_ok;
+      d.pitch_not_avail_elac_2 = !f.elac[1].discrete_outputs.pitch_axis_ok;
+      // the opposite SEC: SEC 2's previous outputs for SEC 1, SEC 1's of this frame for SEC 2
+      const SecRecord& opp = i == 0 ? p.sec[1] : f.sec[0];
+      d.left_elev_not_avail_sec_opp = !opp.discrete_outputs.left_elevator_ok;
+      d.right_elev_not_avail_sec_opp = !opp.discrete_outputs.right_elevator_ok;
+    }
+    d.digital_output_failed_elac_1 = !f.elac[0].discrete_outputs.digital_output_validated;
+    d.digital_output_failed_elac_2 = !f.elac[1].discrete_outputs.digital_output_validated;
+    d.green_low_pressure = !hyd_[0].pressurised;
+    d.blue_low_pressure = !hyd_[1].pressurised;
+    d.yellow_low_pressure = !hyd_[2].pressurised;
+    const base_sec_out_bus& bus = own.bus_outputs;
+    if (info.secHealthy[i]) {
+      d.l_spoiler_1_servo_failed = bus.left_spoiler_1_position_deg.SSM == kNcd;
+      d.r_spoiler_1_servo_failed = bus.right_spoiler_1_position_deg.SSM == kNcd;
+      if (i != 1) {
+        d.l_spoiler_2_servo_failed = bus.left_spoiler_2_position_deg.SSM == kNcd;
+        d.r_spoiler_2_servo_failed = bus.right_spoiler_2_position_deg.SSM == kNcd;
+      }
+      if (i < 2) {
+        d.l_elev_servo_failed = bus.left_elevator_position_deg.SSM == kNcd;
+        d.r_elev_servo_failed = bus.right_elevator_position_deg.SSM == kNcd;
+      }
+    }
+    d.capt_priority_takeover_pressed = elacIn_[0].discrete_inputs.capt_priority_takeover_pressed;
+    d.fo_priority_takeover_pressed = elacIn_[0].discrete_inputs.fo_priority_takeover_pressed;
+
+    base_sec_analog_inputs& a = in.analog_inputs;
+    a = {};
+    if (i < 2) {
+      a.capt_pitch_stick_pos = -f.base.simulation_input_sidestick_pitch_pos;
+      a.ths_pos_deg = -f.base.aircraft_eta_trim_deg;
+      if (info.secHealthy[i]) {
+        a.left_elevator_pos_deg = bus.left_elevator_position_deg.Data;
+        a.right_elevator_pos_deg = bus.right_elevator_position_deg.Data;
+      } else {
+        a.left_elevator_pos_deg = elacIn_[0].analog_inputs.left_elevator_pos_deg;
+        a.right_elevator_pos_deg = elacIn_[0].analog_inputs.right_elevator_pos_deg;
+      }
+    }
+    a.capt_roll_stick_pos = -f.base.simulation_input_sidestick_roll_pos;
+    a.spd_brk_lever_pos = f.base.simulation_input_spoilers_are_armed != 0.0 ? -0.05
+                                                                             : f.base.simulation_input_spoilers_handle_pos;
+    a.thr_lever_1_pos = f.specific.simulation_input_throttle_lever_1_angle;
+    a.thr_lever_2_pos = f.specific.simulation_input_throttle_lever_2_angle;
+    if (info.secHealthy[i]) {
+      a.left_spoiler_1_pos_deg = bus.left_spoiler_1_position_deg.Data;
+      a.right_spoiler_1_pos_deg = bus.right_spoiler_1_position_deg.Data;
+      a.left_spoiler_2_pos_deg = bus.left_spoiler_2_position_deg.Data;
+      a.right_spoiler_2_pos_deg = bus.right_spoiler_2_position_deg.Data;
+    }
+    // wheel speeds: not recorded. FMGC 1 has the wheel speed above 70 kt discretes (the same simvar); otherwise the
+    // ground speed, kept below 70 kt
+    const double gs = m.bus_inputs.ir_own_bus.ground_speed_kn.Data;
+    const bool above70L = m.discrete_inputs.left_wheel_spd_abv_70_kts, above70R = m.discrete_inputs.right_wheel_spd_abv_70_kts;
+    a.wheel_speed_left = above70L ? std::fmax(gs, 72.0) : std::fmin(gs, 69.0);
+    a.wheel_speed_right = above70R ? std::fmax(gs, 72.0) : std::fmin(gs, 69.0);
+    if (i == 0) {
+      info.wheelSpeedApprox = (gs > 15.0 && gs < 31.0) || above70L != above70R;
+      wheelApprox_ += info.wheelSpeedApprox;
+    }
+
+    base_sec_bus_inputs& b = in.bus_inputs;
+    const base_adr_bus* adr[3] = {&m.bus_inputs.adr_own_bus, &m.bus_inputs.adr_opp_bus, &m.bus_inputs.adr_3_bus};
+    const base_ir_bus* ir[3] = {&m.bus_inputs.ir_own_bus, &m.bus_inputs.ir_opp_bus, &m.bus_inputs.ir_3_bus};
+    static const int kSources[3][2] = {{0, 2}, {0, 1}, {1, 2}};  // SEC 1: ADR/IR 1 + 3, SEC 2: 1 + 2, SEC 3: 2 + 3
+    b.adr_1_bus = *adr[kSources[i][0]];
+    b.adr_2_bus = *adr[kSources[i][1]];
+    b.ir_1_bus = *ir[kSources[i][0]];
+    b.ir_2_bus = *ir[kSources[i][1]];
+    b.elac_1_bus = f.elac[0].bus_outputs;
+    b.elac_2_bus = f.elac[1].bus_outputs;
+    b.fcdc_1_bus = elacIn_[0].bus_inputs.fcdc_1_bus;
+    b.fcdc_2_bus = elacIn_[0].bus_inputs.fcdc_2_bus;
+    b.sfcc_1_bus = elacIn_[0].bus_inputs.sfcc_1_bus;
+    b.sfcc_2_bus = elacIn_[0].bus_inputs.sfcc_2_bus;
+    const bool handleDown = f.base.simulation_input_gear_handle_pos > 0.5;
+    for (int k = 0; k < 2; k++) {
+      const base_fac_bus& fb = f.fac[k].bus_outputs.discrete_word_2.SSM != kFw ? f.fac[k].bus_outputs
+                                                                               : f.fac[1 - k].bus_outputs;
+      (k == 0 ? b.lgciu_1_bus : b.lgciu_2_bus) = lgciuFromFac(fb, handleDown);
+    }
   }
 
   /** A recording format with the ELAC model inputs (3209005) fills them here. */
@@ -526,6 +691,11 @@ class EfcsInputDrive {
   std::unique_ptr<FdrFrame> buf_[3];
   bool haveNext_ = false;
   std::unique_ptr<ElacComputer> elac_[2], snap_[2];
+  std::unique_ptr<SecComputer> sec_[3];
+  std::unique_ptr<SecComputer::ExternalInputs_SecComputer_T> secExt_;
+  sec_inputs secIn_[3];
+  const std::function<void(sec_inputs (&)[3], const StepInfo&)>* secStep_ = nullptr;
+  long secHealthy_[3] = {0, 0, 0}, wheelApprox_ = 0;
   std::unique_ptr<ElacComputer::ExternalInputs_ElacComputer_T> elacExt_;
   elac_inputs elacIn_[2];
   double monotonic_ = 0;
