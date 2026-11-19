@@ -445,6 +445,120 @@ foreach(variant ${MODEL_VARIANTS})
   target_link_libraries(fac-shadow-test-${name} PRIVATE fac_readable_${name} fac_model_${name} ZLIB::ZLIB -static)
 endforeach()
 
+# ---- EFCS control laws (readable ELAC / SEC phase): the generated pitch and lateral laws the ELAC and the SEC step,
+# their readable versions (readable/efcs/) and the law-level differential checks (synthetic input trajectories).
+set(READABLE_PITCH_LAW_SOURCES
+  readable/efcs/pitch_normal_law.cpp readable/efcs/pitch_alternate_law.cpp readable/efcs/pitch_direct_law.cpp)
+set(READABLE_LATERAL_LAW_SOURCES readable/efcs/lateral_normal_law.cpp readable/efcs/lateral_direct_law.cpp)
+set(READABLE_ELAC_SOURCES
+  readable/elac/elac.cpp readable/elac/sensors.cpp readable/elac/engagement.cpp readable/elac/protections.cpp
+  readable/elac/orders.cpp readable/elac/output_packing.cpp)
+set(READABLE_SEC_SOURCES
+  readable/sec/sec.cpp readable/sec/spoilers.cpp readable/sec/pitch.cpp readable/sec/output_packing.cpp)
+foreach(variant ${MODEL_VARIANTS})
+  string(REPLACE "=" ";" parts ${variant})
+  list(GET parts 0 name)
+  list(GET parts 1 dir)
+  set(gen_dir ${CMAKE_CURRENT_BINARY_DIR}/gen-${name})
+
+  add_library(efcs_laws_model_${name} STATIC ${dir}/PitchNormalLaw.cpp ${dir}/PitchAlternateLaw.cpp
+    ${dir}/PitchDirectLaw.cpp ${dir}/LateralNormalLaw.cpp ${dir}/LateralDirectLaw.cpp ${dir}/look1_binlxpw.cpp
+    ${dir}/look2_binlxpw.cpp)
+  target_include_directories(efcs_laws_model_${name} PUBLIC ${dir})
+  target_compile_options(efcs_laws_model_${name} PRIVATE -O2 -ffp-contract=off)
+
+  add_library(efcs_laws_readable_${name} STATIC ${READABLE_PITCH_LAW_SOURCES} ${READABLE_LATERAL_LAW_SOURCES})
+  target_include_directories(efcs_laws_readable_${name} PUBLIC ${dir} readable readable/fac readable/efcs)
+  target_compile_options(efcs_laws_readable_${name} PRIVATE -O2 -ffp-contract=off)
+
+  add_executable(efcs-pitch-law-check-${name} src/check_pitch_laws.cpp)
+  target_include_directories(efcs-pitch-law-check-${name} PRIVATE ${WASM_SRC} src)
+  target_compile_options(efcs-pitch-law-check-${name} PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(efcs-pitch-law-check-${name} PRIVATE efcs_laws_readable_${name} efcs_laws_model_${name} -static)
+
+  add_executable(efcs-lateral-law-check-${name} src/check_lateral_laws.cpp)
+  target_include_directories(efcs-lateral-law-check-${name} PRIVATE ${WASM_SRC} src)
+  target_compile_options(efcs-lateral-law-check-${name} PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(efcs-lateral-law-check-${name} PRIVATE efcs_laws_readable_${name} efcs_laws_model_${name}
+    -static)
+
+  # the generated ELAC and SEC (their laws from efcs_laws_model) and the parameter dictionary of all of them
+  add_library(elac_model_${name} STATIC ${dir}/ElacComputer.cpp ${dir}/ElacComputer_data.cpp)
+  target_include_directories(elac_model_${name} PUBLIC ${dir})
+  target_compile_options(elac_model_${name} PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(elac_model_${name} PUBLIC efcs_laws_model_${name})
+  add_library(sec_model_${name} STATIC ${dir}/SecComputer.cpp ${dir}/SecComputer_data.cpp)
+  target_include_directories(sec_model_${name} PUBLIC ${dir})
+  target_compile_options(sec_model_${name} PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(sec_model_${name} PUBLIC efcs_laws_model_${name})
+  add_custom_command(
+    OUTPUT ${gen_dir}/efcs_params.gen.h
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${gen_dir}
+    COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_params.py ${gen_dir}/efcs_params.gen.h
+            ElacComputer=${dir}/ElacComputer.h SecComputer=${dir}/SecComputer.h PitchNormalLaw=${dir}/PitchNormalLaw.h
+            PitchAlternateLaw=${dir}/PitchAlternateLaw.h PitchDirectLaw=${dir}/PitchDirectLaw.h
+            LateralNormalLaw=${dir}/LateralNormalLaw.h LateralDirectLaw=${dir}/LateralDirectLaw.h
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_params.py ${dir}/ElacComputer.h ${dir}/SecComputer.h)
+  add_executable(efcs-dump-params-${name} src/dump_efcs_params.cpp ${gen_dir}/efcs_params.gen.h)
+  target_include_directories(efcs-dump-params-${name} PRIVATE ${gen_dir} ${WASM_SRC})
+  target_link_libraries(efcs-dump-params-${name} PRIVATE elac_model_${name} sec_model_${name} -static)
+
+  # ELAC: replay over any recording (inputs rebuilt from the record, src/efcs_drive.h)
+  add_custom_command(
+    OUTPUT ${gen_dir}/elac_fields.gen.h
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${gen_dir}
+    COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_fields.py ${dir}/ElacComputer_types.h
+            ${gen_dir}/elac_fields.gen.h elac_outputs,elac_inputs
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_fields.py ${dir}/ElacComputer_types.h)
+  add_executable(elac-replay-${name} src/elac_replay.cpp ${gen_dir}/elac_fields.gen.h)
+  target_include_directories(elac-replay-${name} PRIVATE ${gen_dir} ${WASM_SRC} src)
+  target_compile_options(elac-replay-${name} PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(elac-replay-${name} PRIVATE elac_model_${name} sec_model_${name} ZLIB::ZLIB -static)
+
+  # the readable ELAC and its differential check
+  add_library(elac_readable_${name} STATIC ${READABLE_ELAC_SOURCES})
+  target_include_directories(elac_readable_${name} PUBLIC ${dir} readable readable/fac readable/efcs readable/elac)
+  target_compile_options(elac_readable_${name} PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(elac_readable_${name} PUBLIC efcs_laws_readable_${name})
+  add_executable(elac-check-${name} src/check_elac.cpp ${gen_dir}/elac_fields.gen.h)
+  target_include_directories(elac-check-${name} PRIVATE ${gen_dir} ${WASM_SRC} src)
+  target_compile_options(elac-check-${name} PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(elac-check-${name} PRIVATE elac_readable_${name} elac_model_${name} sec_model_${name} ZLIB::ZLIB
+    -static)
+
+  # SEC: replay (the same drive, SECs after the ELACs), the readable SEC and its differential check
+  add_custom_command(
+    OUTPUT ${gen_dir}/sec_fields.gen.h
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${gen_dir}
+    COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_fields.py ${dir}/SecComputer_types.h
+            ${gen_dir}/sec_fields.gen.h sec_outputs,sec_inputs
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_fields.py ${dir}/SecComputer_types.h)
+  add_executable(sec-replay-${name} src/sec_replay.cpp ${gen_dir}/sec_fields.gen.h)
+  target_include_directories(sec-replay-${name} PRIVATE ${gen_dir} ${WASM_SRC} src)
+  target_compile_options(sec-replay-${name} PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(sec-replay-${name} PRIVATE elac_model_${name} sec_model_${name} ZLIB::ZLIB -static)
+  add_library(sec_readable_${name} STATIC ${READABLE_SEC_SOURCES})
+  target_include_directories(sec_readable_${name} PUBLIC ${dir} readable readable/fac readable/efcs readable/sec)
+  target_compile_options(sec_readable_${name} PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(sec_readable_${name} PUBLIC efcs_laws_readable_${name})
+  add_executable(sec-check-${name} src/check_sec.cpp ${gen_dir}/sec_fields.gen.h)
+  target_include_directories(sec-check-${name} PRIVATE ${gen_dir} ${WASM_SRC} src)
+  target_compile_options(sec-check-${name} PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(sec-check-${name} PRIVATE sec_readable_${name} elac_model_${name} sec_model_${name} ZLIB::ZLIB
+    -static)
+
+  # experiment: the same replay with the generated ELAC and laws compiled with fused multiply-adds (FAC finding A1)
+  add_library(elac_model_fma_${name} STATIC ${dir}/ElacComputer.cpp ${dir}/ElacComputer_data.cpp
+    ${dir}/PitchNormalLaw.cpp ${dir}/PitchAlternateLaw.cpp ${dir}/PitchDirectLaw.cpp ${dir}/LateralNormalLaw.cpp
+    ${dir}/LateralDirectLaw.cpp ${dir}/look1_binlxpw.cpp ${dir}/look2_binlxpw.cpp)
+  target_include_directories(elac_model_fma_${name} PUBLIC ${dir})
+  target_compile_options(elac_model_fma_${name} PRIVATE -O2 -mfma -ffp-contract=fast)
+  add_executable(elac-replay-fma-${name} src/elac_replay.cpp ${gen_dir}/elac_fields.gen.h)
+  target_include_directories(elac-replay-fma-${name} PRIVATE ${gen_dir} ${WASM_SRC} src)
+  target_compile_options(elac-replay-fma-${name} PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(elac-replay-fma-${name} PRIVATE elac_model_fma_${name} ${dir}/SecComputer.cpp ${dir}/SecComputer_data.cpp ZLIB::ZLIB -static)
+endforeach()
+
 # Control-law checks (Phase 3): an instrumented copy of the stock model (outer-loop call hooks and probes), never the
 # repo's model/ folder. Built when a variant named "stock" exists.
 foreach(variant ${MODEL_VARIANTS})
@@ -606,6 +720,55 @@ if(FMGC_FUZZ)
   target_include_directories(fac-cov-check PRIVATE ${fuzz_gen} ${WASM_SRC} src)
   target_compile_options(fac-cov-check PRIVATE -O2 -ffp-contract=off)
   target_link_libraries(fac-cov-check PRIVATE fac_readable_cov fac_model_cov ZLIB::ZLIB -fprofile-instr-generate -static)
+
+  # EFCS pitch laws: the same for PitchNormalLaw.cpp, PitchAlternateLaw.cpp, PitchDirectLaw.cpp and the readable pitch
+  # laws, driven by the synthetic differential check (scripts/pitch-law-coverage.sh). Lookup helpers not instrumented.
+  add_library(efcs_pitch_model_rest OBJECT ${fuzz_dir}/look1_binlxpw.cpp ${fuzz_dir}/look2_binlxpw.cpp)
+  target_include_directories(efcs_pitch_model_rest PUBLIC ${fuzz_dir})
+  target_compile_options(efcs_pitch_model_rest PRIVATE -O2 -ffp-contract=off)
+  add_library(efcs_pitch_model_cov STATIC ${fuzz_dir}/PitchNormalLaw.cpp ${fuzz_dir}/PitchAlternateLaw.cpp
+    ${fuzz_dir}/PitchDirectLaw.cpp $<TARGET_OBJECTS:efcs_pitch_model_rest>)
+  target_include_directories(efcs_pitch_model_cov PUBLIC ${fuzz_dir})
+  target_compile_options(efcs_pitch_model_cov PRIVATE -O2 -ffp-contract=off -fprofile-instr-generate -fcoverage-mapping)
+  add_library(efcs_pitch_readable_cov STATIC ${READABLE_PITCH_LAW_SOURCES})
+  target_include_directories(efcs_pitch_readable_cov PUBLIC ${fuzz_dir} readable readable/fac readable/efcs)
+  target_compile_options(efcs_pitch_readable_cov PRIVATE -O2 -ffp-contract=off -fprofile-instr-generate
+    -fcoverage-mapping)
+  add_executable(efcs-pitch-law-cov-check src/check_pitch_laws.cpp)
+  target_include_directories(efcs-pitch-law-cov-check PRIVATE ${WASM_SRC} src)
+  target_compile_options(efcs-pitch-law-cov-check PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(efcs-pitch-law-cov-check PRIVATE efcs_pitch_readable_cov efcs_pitch_model_cov
+    -fprofile-instr-generate -static)
+
+  # ELAC and SEC: source-based coverage of ElacComputer.cpp / SecComputer.cpp, the five law .cpp files and the readable
+  # ELAC / SEC / laws, driven by the corpus differential checks (scripts/check-efcs-corpus.sh with COVERAGE=1)
+  set(efcs_cov_flags -O2 -ffp-contract=off -fprofile-instr-generate -fcoverage-mapping)
+  add_library(efcs_model_cov STATIC ${fuzz_dir}/ElacComputer.cpp ${fuzz_dir}/SecComputer.cpp ${fuzz_dir}/PitchNormalLaw.cpp
+    ${fuzz_dir}/PitchAlternateLaw.cpp ${fuzz_dir}/PitchDirectLaw.cpp ${fuzz_dir}/LateralNormalLaw.cpp
+    ${fuzz_dir}/LateralDirectLaw.cpp)
+  target_include_directories(efcs_model_cov PUBLIC ${fuzz_dir})
+  target_compile_options(efcs_model_cov PRIVATE ${efcs_cov_flags})
+  add_library(efcs_model_cov_rest OBJECT ${fuzz_dir}/ElacComputer_data.cpp ${fuzz_dir}/SecComputer_data.cpp)
+  target_include_directories(efcs_model_cov_rest PUBLIC ${fuzz_dir})
+  target_compile_options(efcs_model_cov_rest PRIVATE -O2 -ffp-contract=off)
+  add_library(efcs_readable_cov STATIC ${READABLE_PITCH_LAW_SOURCES} ${READABLE_LATERAL_LAW_SOURCES}
+    ${READABLE_ELAC_SOURCES} ${READABLE_SEC_SOURCES})
+  target_include_directories(efcs_readable_cov PUBLIC ${fuzz_dir} readable readable/fac readable/efcs readable/elac
+    readable/sec)
+  target_compile_options(efcs_readable_cov PRIVATE ${efcs_cov_flags})
+  add_executable(efcs-lateral-law-cov-check src/check_lateral_laws.cpp)
+  target_include_directories(efcs-lateral-law-cov-check PRIVATE ${WASM_SRC} src)
+  target_compile_options(efcs-lateral-law-cov-check PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(efcs-lateral-law-cov-check PRIVATE efcs_readable_cov efcs_model_cov
+    $<TARGET_OBJECTS:efcs_model_cov_rest> $<TARGET_OBJECTS:efcs_pitch_model_rest> -fprofile-instr-generate -static)
+  foreach(unit elac sec)
+    add_executable(${unit}-cov-check src/check_${unit}.cpp ${fuzz_gen}/${unit}_fields.gen.h)
+    target_include_directories(${unit}-cov-check PRIVATE ${fuzz_gen} ${WASM_SRC} src)
+    target_compile_options(${unit}-cov-check PRIVATE -O2 -ffp-contract=off)
+    target_link_libraries(${unit}-cov-check PRIVATE efcs_readable_cov efcs_model_cov
+      $<TARGET_OBJECTS:efcs_model_cov_rest> $<TARGET_OBJECTS:efcs_pitch_model_rest> ZLIB::ZLIB -fprofile-instr-generate
+      -static)
+  endforeach()
 endif()
 
 # Round trip of the personal FDR format with the FCU (3209001): writes a synthetic file and reads it back.

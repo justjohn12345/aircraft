@@ -19,6 +19,8 @@ UNIT=fadec: the same for the readable FADEC (readable/fadec/, fadec-check-stock,
 bit numbers of the ECU bus packing): scripts/mutate-fadec.sh
 UNIT=fac: the readable FAC (readable/fac/, fac-check-stock, build/mutants-fac): also the integer constants (ARINC bit
 numbers, + 1); not the table rows (lines with 4 or more numbers) or the buffet table header: scripts/mutate-fac.sh
+UNIT=elac / sec: the readable ELAC (readable/elac/, elac-check-stock) / SEC (readable/sec/, sec-check-stock); ARINC
+bit numbers + 1 in every bit read; not the table rows: scripts/mutate-efcs.sh
 BUILD_JOBS: parallel compiles per mutant build (default 4). MUTANT_TIMEOUT: seconds per run before a hanging mutant
 counts as caught (default 600).
 """
@@ -53,6 +55,7 @@ OPS = [
 NUM = re.compile(r'(?<![\w.])(\d+\.\d+)(F?)\b')
 BIT = re.compile(r'(bit\((?:[\w.]+), )(\d+)(\))')
 PACKED_BIT = re.compile(r'(\.bit\()(\d+)(,)')  # FADEC ECU bus packing
+EFCS_BIT = re.compile(r'((?:isOn|onValid|sfccBit|on|bit)\([\w.\[\]]+, )(\d+)(\))')  # ELAC / SEC bit reads
 INT_CONST = re.compile(r'(?<![\w.])(\d+)(?![\w.])')  # FAC: integer constants of `constexpr int` lines
 BUILD_JOBS = os.environ.get('BUILD_JOBS', '4')
 
@@ -75,7 +78,7 @@ def mutants():
                     new = line[:m.start()] + rep + line[m.end():]
                     out.append({'file': name, 'line': i, 'old': line, 'new': new, 'desc': desc})
             nums = list(NUM.finditer(code))
-            if UNIT == 'fac' and len(nums) >= 4:
+            if UNIT in ('fac', 'elac', 'sec') and len(nums) >= 4:
                 nums = []  # table rows: covered by the corpus replay, too many mutants
             for m in nums:
                 v = float(m.group(1))
@@ -83,6 +86,8 @@ def mutants():
                 new = line[:m.start()] + repr(nv) + m.group(2) + line[m.end():]
                 out.append({'file': name, 'line': i, 'old': line, 'new': new, 'desc': f'{m.group(1)}->{nv}'})
             bits = list(BIT.finditer(code)) + (list(PACKED_BIT.finditer(code)) if UNIT == 'fadec' else [])
+            if UNIT in ('elac', 'sec'):
+                bits = list(EFCS_BIT.finditer(code))
             for m in bits:
                 nb = int(m.group(2)) + 1
                 new = line[:m.start(2)] + str(nb) + line[m.end(2):]
@@ -151,7 +156,7 @@ if UNIT == 'fadec':
         ['--synthetic', '--script', '2', '--lever', '2', '--athr', '2', '--sim', '2'],
     ]
 
-if UNIT == 'fac':
+if UNIT in ('fac', 'elac', 'sec'):
     CONFIGS = [
         [], ['--script', '1'], ['--failures', '1'], ['--discretes', '1'], ['--power', '1'], ['--sim', '1'],
         ['--script', '2', '--failures', '2', '--discretes', '2', '--power', '2', '--sim', '2'],
@@ -180,6 +185,12 @@ def cmd_test(jobs):
     ms = json.load(open(os.path.join(OUT, 'list.json')))
     files = sorted(os.path.join(CORPUS, f) for f in os.listdir(CORPUS) if f.endswith('.fdr'))
     quick = [files[i] for i in (len(files) - 4, len(files) // 2, 3) if 0 <= i < len(files)]
+    if UNIT in ('elac', 'sec'):
+        # three short recordings with the scripted tour first, then two flights for the survivors
+        def pick(names):
+            return [f for f in files if os.path.basename(f)[:19] in names] or files[:len(names)]
+        quick = pick({'2026-11-14-13-57-13', '2026-11-16-01-07-03', '2026-11-11-00-25-42'})
+        files = quick + pick({'2026-11-09-23-30-14', '2026-11-16-15-22-40'})
     if UNIT == 'fac':
         # FAC runs take seconds each: three short recordings first (the scripted tour brings the flight phases), then
         # four more (two long flights) for the survivors, not the whole corpus
