@@ -116,8 +116,6 @@ export abstract class FMCMainDisplay implements FmsDataInterface, FmsDisplayInte
     'L:A32NX_FCU_AFS_DISPLAY_SPD_MACH_MANAGED',
   );
 
-  private static readonly fcuMachModeVar = RegisteredSimVar.createBoolean('L:A32NX_FCU_AFS_DISPLAY_MACH_MODE');
-
   private static readonly fmApproachHeadWindRegisteredSimVar = RegisteredSimVar.create(
     'L:A32NX_FM_APPROACH_HEADWIND_COMPONENT',
     SimVarValueType.String,
@@ -348,6 +346,9 @@ export abstract class FMCMainDisplay implements FmsDataInterface, FmsDisplayInte
   private readonly speedsManagedPfd = Subject.create<number | null>(null);
 
   private readonly managedSpeedIsMach = Subject.create(false);
+
+  /** Whether the FCU showed managed speed at the last managed speed update, for the engagement edge. */
+  private fcuSpdMachManagedLastUpdate = false;
 
   private readonly fcuEisLeftDiscreteWord1 = Arinc429LocalVarConsumerSubject.create(
     this.sub.on('a32nx_fcu_eis_discrete_word_1_left'),
@@ -1387,20 +1388,22 @@ export abstract class FMCMainDisplay implements FmsDataInterface, FmsDisplayInte
 
     this.speedsManagedPfd.set(vPfd);
     this.managedSpeedIsMach.set(isMach);
-    this.syncFcuManagedSpeedMachMode(isMach);
+    this.syncFcuSpdMachOnManagedSpeedEngagement(isMach);
   }
 
   /**
    * In managed speed, the FMGC commands the FCU SPD/MACH switchover (A320 FCOM DSC-22_30-40 SPEED/MACH SWITCHING).
-   * The switch is normally sent when the managed target changes between speed and Mach. This also corrects the FCU when
-   * it is in the other mode, e.g. when managed speed is engaged after the SPD/MACH pb was used in selected speed, which
-   * would otherwise never be switched back. In selected speed the switchover is manual, so the FCU is left alone.
+   * The switch is otherwise only sent when the managed target changes between speed and Mach, so when managed speed is
+   * engaged after the SPD/MACH pb was used in selected speed, the FCU would stay in the other mode. On the rising edge
+   * of managed speed, set the FCU to the mode the managed target requires.
    * @param isMach whether the managed speed target is a Mach number
    */
-  private syncFcuManagedSpeedMachMode(isMach: boolean): void {
-    if (FMCMainDisplay.fcuSpdMachManagedVar.get() && FMCMainDisplay.fcuMachModeVar.get() !== isMach) {
+  private syncFcuSpdMachOnManagedSpeedEngagement(isMach: boolean): void {
+    const spdMachManaged = FMCMainDisplay.fcuSpdMachManagedVar.get();
+    if (spdMachManaged && !this.fcuSpdMachManagedLastUpdate) {
       SimVar.SetSimVarValue(isMach ? 'K:AP_MANAGED_SPEED_IN_MACH_ON' : 'K:AP_MANAGED_SPEED_IN_MACH_OFF', 'number', 1);
     }
+    this.fcuSpdMachManagedLastUpdate = spdMachManaged;
   }
 
   private activatePreSelSpeedMach(preSel) {
