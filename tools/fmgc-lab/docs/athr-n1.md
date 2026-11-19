@@ -137,7 +137,7 @@ Why the command was 16 % below the actual N1 at the mode change:
 So the windup cost the first ~14 s (engines at idle after OP CLB), and the 1 %/s ramp the rest: starting from the
 actual 34 %, the command would still have needed ~57 s to reach CLB (≈998 s instead of ≈1014 s).
 
-### Smallest change to start the THR ramp from the actual N1 (not implemented; this branch stays stock)
+### Smallest change to start the THR ramp from the actual N1 (implemented on personal/fg-athr-thr-reload; this branch stays stock)
 
 Add one term to the integrator load condition: entering THR mode while the command is below the actual N1.
 
@@ -151,6 +151,11 @@ edge on `thrust_mode_active` (the previous outputs are already available as `Del
 of the integrator state to `max(N1 actual)`. The existing load path then sets the command to the actual N1, so THR CLB
 ramps from 34 % instead of 18 %. The `n1_c < actual` condition avoids a step down when THR follows a SPEED spool-up
 (command ahead of the engines). It does not change the 1 %/s ramp, which is the larger part of the delay.
+
+Verified (2026-11-18): replaying 2026-11-14-16-38-03 through personal/fmgc-allfixes (bdf73cb7a) open loop, the
+command at the SPEED → THR CLB change (941.05 s) is 33.99 % (the actual N1) instead of 18 %; only `n1_c` differs, for
+the 5362 frames until the command would reach CLB. Readable vs generated lockstep over the corpus: 2730 runs, 0
+mismatches.
 
 A more general alternative is an anti-windup floor instead of the fixed 18 %: limit the integrator below to
 `min(N1 actual) - margin` (the command cannot run away from the engines at idle in any mode, which also helps a
