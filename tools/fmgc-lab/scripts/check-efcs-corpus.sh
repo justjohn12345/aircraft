@@ -87,8 +87,17 @@ if [ -x "$replay" ] && [ -z "${NO_REPLAY:-}" ]; then
   done
   wait
   awk '
-    /^known inputs:/ {kc += $6 + $8; ke += $10}
-    /^approximate inputs:/ {ac += $6 + $8; ae += $10}
+    # "... frames compared A + B [+ C], bit-exact X; ..." (two ELACs or three SECs)
+    function sum(line, which,   a, n, i, j, s) {
+      n = split(line, a, /[ ,;+]+/); s = 0
+      for (i = 1; i <= n; i++) {
+        if (which == "c" && a[i] == "compared") for (j = i + 1; a[j] ~ /^[0-9]+$/; j++) s += a[j]
+        if (which == "e" && a[i] == "bit-exact") s += a[i + 1]
+      }
+      return s
+    }
+    /^known inputs:/ {kc += sum($0, "c"); ke += sum($0, "e")}
+    /^approximate inputs:/ {ac += sum($0, "c"); ae += sum($0, "e")}
     /^(elac|sec)[0-9]\./ {
       name = $1; sub(/^(elac|sec)[0-9]\./, "", name); m[name] += $2; if ($5 + 0 > d[name]) d[name] = $5 + 0
     }
