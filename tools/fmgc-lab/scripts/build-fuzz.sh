@@ -24,7 +24,7 @@ only=""
 [ -n "${FADEC_ONLY:-}" ] && only=fadec-cov-check
 [ -n "${FAC_ONLY:-}" ] && only=fac-cov-check
 [ -n "${PITCH_ONLY:-}" ] && only=efcs-pitch-law-cov-check
-[ -n "${EFCS_ONLY:-}" ] && only="elac-cov-check sec-cov-check"
+[ -n "${EFCS_ONLY:-}" ] && only="elac-cov-check sec-cov-check efcs-lateral-law-cov-check"
 if [ -n "$only" ]; then
   cd "$repo"
   ./scripts/dev-env/run.sh bash -c "set -e; cd tools/fmgc-lab && \

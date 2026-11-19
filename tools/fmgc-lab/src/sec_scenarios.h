@@ -122,9 +122,9 @@ class ScriptScenario {
         levers(i, (variant_ == 3) ? 36.0 : 25.0, 25.0, lever);
         setBit(b.elac_1_bus.discrete_status_word_2, 22, variant_ & 1);
         setBit(b.elac_2_bus.discrete_status_word_2, 22, false);
-        setBit(b.elac_1_bus.discrete_status_word_2, 23, variant_ == 2);
+        setBit(b.elac_1_bus.discrete_status_word_2, 23, variant_ == 2 || variant_ == 1);
         setBit(b.elac_2_bus.discrete_status_word_2, 23, variant_ == 6);
-        b.elac_1_bus.discrete_status_word_2.SSM = kNo;
+        b.elac_1_bus.discrete_status_word_2.SSM = variant_ == 1 ? kFw : kNo;
         b.elac_2_bus.discrete_status_word_2.SSM = kNo;
         setBit(b.sfcc_1_bus.slat_flap_actual_position_word, 23, variant_ == 4);
         b.sfcc_1_bus.slat_flap_actual_position_word.SSM = kNo;
@@ -161,6 +161,14 @@ class ScriptScenario {
         }
         if (variant_ & 1) b.lgciu_1_bus.discrete_word_3.SSM = kFw;
         if (variant_ & 2) b.lgciu_2_bus.discrete_word_3.SSM = kFw;
+        if (variant_ >= 5) {  // single gear bits (11, 12, 13 one at a time)
+          const int bit = 11 + (static_cast<int>(t_ / 2) % 3);
+          for (base_lgciu_bus* l : {&b.lgciu_1_bus, &b.lgciu_2_bus}) {
+            setBit(l->discrete_word_3, 11, bit == 11);
+            setBit(l->discrete_word_3, 12, bit == 12);
+            setBit(l->discrete_word_3, 13, bit == 13 && (l == &b.lgciu_1_bus || (variant_ & 1)));
+          }
+        }
         if (variant_ == 4) {
           setBit(b.lgciu_2_bus.discrete_word_3, 14, true);
           setBit(b.lgciu_2_bus.discrete_word_3, 11, false);
@@ -170,14 +178,14 @@ class ScriptScenario {
           setBit(b.lgciu_1_bus.discrete_word_3, 11, true);
         }
         setBit(b.sfcc_2_bus.slat_flap_actual_position_word, 20, variant_ & 4);
-        b.sfcc_2_bus.slat_flap_actual_position_word.SSM = kNo;
+        b.sfcc_2_bus.slat_flap_actual_position_word.SSM = variant_ == 6 ? kFw : kNo;
         break;
       }
       case 6:  // SEC pitch: both ELACs' pitch lost, the other SEC's elevators, THS ground setting after touchdown
         hydraulics(i);
         d.pitch_not_avail_elac_1 = d.pitch_not_avail_elac_2 = !(variant_ == 7);
-        d.left_elev_not_avail_sec_opp = variant_ & 1;
-        d.right_elev_not_avail_sec_opp = variant_ & 1;
+        d.left_elev_not_avail_sec_opp = (variant_ & 1) != 0;
+        d.right_elev_not_avail_sec_opp = (variant_ & 1) != 0;
         gear(i, t_ > 6, t_ > 6, true);
         for (base_ir_bus* r : {&b.ir_1_bus, &b.ir_2_bus}) r->pitch_angle_deg = no(t_ < 3 ? 10.0 : 1.0);
         a.ths_pos_deg = 3.0 * jitter_ * (1.0 - ramp);
@@ -186,6 +194,9 @@ class ScriptScenario {
         b.elac_1_bus.elevator_double_pressurization_command_deg = {(variant_ & 2) ? kNo : kNcd, 7.0F};
         b.elac_2_bus.elevator_double_pressurization_command_deg = {(variant_ & 4) ? kNo : kFw, -7.0F};
         setBit(b.elac_1_bus.discrete_status_word_1, 20, variant_ & 2);
+        setBit(b.elac_2_bus.discrete_status_word_1, 20, variant_ & 4);
+        b.elac_2_bus.discrete_status_word_1.SSM = variant_ == 4 ? kFw : kNo;
+        if (variant_ == 3) d.green_low_pressure = d.yellow_low_pressure = true;  // SEC 1 in pitch without the THS
         break;
       default: {  // ADR / IR selection, abnormal attitude values
         const int k = (variant_ + static_cast<int>(t_ / 3)) & 15;

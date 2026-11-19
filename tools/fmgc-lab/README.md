@@ -2,7 +2,8 @@
 
 Native (no MSFS) build of the generated A32NX FMGC (`FmgcComputer` + `FmgcOuterLoops`) with a flight data recorder
 replay harness. Phase 0 of the FMGC reverse-engineering plan (`~/fmgc-lab/PLAN.md`). The FCU (`FcuComputer`), the
-FADEC (`FadecComputer`) and the FAC (`FacComputer`) have the same treatment: see "FCU", "FADEC" and "FAC" at the end.
+FADEC (`FadecComputer`), the FAC (`FacComputer`), the ELAC (`ElacComputer` and its five control laws) and the SEC
+(`SecComputer`) have the same treatment: see "FCU", "FADEC", "FAC" and "ELAC and SEC" at the end.
 
 **Findings:** every bug and FCOM difference found so far, with status, is indexed in `docs/findings.md`.
 
@@ -412,3 +413,40 @@ known inputs): every field bit-exact except two washout filter outputs that the 
 Coverage of `FacComputer.cpp`: 94.4 % of branches (553/586; the 33 missing sides are unreachable: constant block
 parameters, implied conditions, constant switches), 97.8 % of lines; readable FAC 100 % of branches but one implied
 side. Mutation test: 390 of 412 mutants caught, the 22 survivors equivalent (`docs/fac.md`).
+
+## ELAC and SEC: replay, readable ELAC / SEC / laws, differential checks
+
+The generated ELAC (`ElacComputer`, two instances) with its laws (`PitchNormalLaw`, `PitchAlternateLaw`,
+`PitchDirectLaw`, `LateralNormalLaw`, `LateralDirectLaw`) and the SEC (`SecComputer`, three instances; it steps the
+alternate / direct pitch laws and the lateral direct law) the same way. Identical in every model variant. Readable:
+`readable/efcs/` (laws and the shared block library, namespace `efcs::readable`), `readable/elac/`, `readable/sec/`.
+Spec, inputs, outputs, memories, FCOM checks: `docs/elac.md`, `docs/sec.md`; findings L1-L15 and S1-S6 in
+`docs/findings.md` section 10; parameters `docs/params-ElacComputer.txt`, `docs/params-SecComputer.txt`,
+`docs/params-EfcsLaws.txt`.
+
+```sh
+TARGETS='elac-check-stock elac-replay-stock sec-check-stock sec-replay-stock efcs-dump-params-stock
+  efcs-pitch-law-check-stock efcs-lateral-law-check-stock' JOBS=2 scripts/build.sh stock=master
+build/elac-replay-stock [--from N] [--to N] [--list N] [--ieee] file.fdr        # sec-replay-stock: the same for the SECs
+build/elac-check-stock [--script SEED] [--failures SEED] [--discretes SEED] [--power SEED] [--sim SEED] \
+  [--warm FILE] [--time] file.fdr                                              # sec-check-stock: the same
+build/efcs-pitch-law-check-stock --seed S --steps N [--law normal|alternate|direct|all]   # law level, synthetic
+build/efcs-lateral-law-check-stock --seed S --steps N
+UNIT=elac JOBS=2 [SEEDS=2] scripts/check-efcs-corpus.sh       # UNIT=sec for the SECs; then the replay summary
+EFCS_ONLY=1 scripts/build-fuzz.sh && UNIT=elac COVERAGE=1 JOBS=2 scripts/check-efcs-corpus.sh   # + clang coverage
+PITCH_ONLY=1 scripts/build-fuzz.sh && scripts/pitch-law-coverage.sh                            # pitch laws alone
+UNIT=elac JOBS=2 scripts/mutate-efcs.sh                         # UNIT=sec for the SEC
+```
+
+- No recording format up to 3209004 holds the ELAC / SEC model inputs. `src/efcs_drive.h` rebuilds them (the file
+  comment lists each field and how exact it is): ADIRS / RA from FMGC 1's recorded inputs, FMGC buses as `fac_drive.h`,
+  the other computers' records of the right frame, SFCC / LGCIU words from the FACs, FCDC bits from the SECs, sticks,
+  pedals, THS, hydraulic pressures, TLAs and the speed brake lever from the base records; the takeover pushbuttons by
+  search (discrete word 2 must match); estimated: pressure switches, wheel speeds, surface positions (bus floats).
+  `recordedInputs()` is the hook for a format with recorded model inputs (3209005).
+- `elac-check` / `sec-check`: generated and readable computers in lockstep, free-running, every output leaf (717 per
+  ELAC, 525 per SEC) and every hidden memory including the laws' (306 per ELAC, 120 per SEC) bit-exact each step.
+  Injectors: scripted tours (`src/elac_scenarios.h`, `src/sec_scenarios.h`) and the generic word failures, discrete /
+  analog flips, power cuts and sim flags (`src/efcs_scenarios.h`).
+
+Results (2026-11-18, 30 recordings): RESULTS_EFCS_README

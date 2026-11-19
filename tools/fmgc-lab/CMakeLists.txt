@@ -627,6 +627,11 @@ if(FMGC_FUZZ)
   target_include_directories(efcs_readable_cov PUBLIC ${fuzz_dir} readable readable/fac readable/efcs readable/elac
     readable/sec)
   target_compile_options(efcs_readable_cov PRIVATE ${efcs_cov_flags})
+  add_executable(efcs-lateral-law-cov-check src/check_lateral_laws.cpp)
+  target_include_directories(efcs-lateral-law-cov-check PRIVATE ${WASM_SRC} src)
+  target_compile_options(efcs-lateral-law-cov-check PRIVATE -O2 -ffp-contract=off)
+  target_link_libraries(efcs-lateral-law-cov-check PRIVATE efcs_readable_cov efcs_model_cov
+    $<TARGET_OBJECTS:efcs_model_cov_rest> $<TARGET_OBJECTS:efcs_pitch_model_rest> -fprofile-instr-generate -static)
   foreach(unit elac sec)
     add_executable(${unit}-cov-check src/check_${unit}.cpp ${fuzz_gen}/${unit}_fields.gen.h)
     target_include_directories(${unit}-cov-check PRIVATE ${fuzz_gen} ${WASM_SRC} src)

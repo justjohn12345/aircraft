@@ -117,12 +117,12 @@ class ScriptScenario {
       case 0:  // aileron cross-command: ELAC 2 with ELAC 1's ailerons lost (one or both) and its aileron order
         hydraulics(i);
         if (unit == 1) {
-          d.opp_left_aileron_lost = variant_ & 1;
+          d.opp_left_aileron_lost = (variant_ & 1) != 0;
           d.opp_right_aileron_lost = (variant_ & 2) || !(variant_ & 1);
           b.elac_opp_bus.aileron_command_deg = {(variant_ & 4) ? kNcd : kNo, static_cast<float>(20 * jitter_)};
         } else {
-          d.l_ail_servo_failed = variant_ & 1;
-          d.r_ail_servo_failed = variant_ & 2;
+          d.l_ail_servo_failed = (variant_ & 1) != 0;
+          d.r_ail_servo_failed = (variant_ & 2) != 0;
         }
         break;
       case 1:  // radio altimeters: disagreement, flaps FULL for 10 s, one / both failed, CAS above 180 / 200 kt
@@ -157,6 +157,7 @@ class ScriptScenario {
         allAdr(i, 140, 0.3, 4 + 14 * ramp);
         allIr(i, 10, 0);
         d.ap_1_disengaged = d.ap_2_disengaged = true;
+        if (variant_ == 5) i.time.monotonic_time = t_;  // within 10 s of power-up
         a.capt_pitch_stick_pos = (variant_ & 2) ? (ramp > 0.7 ? 0.8 : -0.2) : (ramp > 0.8 ? -0.7 : 0.0);
         break;
       case 4: {  // abnormal attitude and envelope limits, in flight, then on the ground
@@ -194,7 +195,7 @@ class ScriptScenario {
         a.ths_pos_deg = 2.0 * jitter_ * (1.0 - ramp) + ((variant_ & 1) ? 0.01 : 0.0);
         d.ths_override_active = variant_ == 3;
         d.ths_motor_fault = variant_ == 5;
-        d.opp_axis_pitch_failure = variant_ & 4;
+        d.opp_axis_pitch_failure = (variant_ & 4) != 0;
         break;
       case 7:  // double pressurisation: large elevator orders at speed; ELAC not in pitch with the other's order
         hydraulics(i);
@@ -202,7 +203,7 @@ class ScriptScenario {
         ra(i, 2500, 2500);
         allAdr(i, 180 + 250 * ramp, 0.6, 3);
         a.capt_pitch_stick_pos = (variant_ & 1) ? 1.0 : -1.0;
-        d.opp_axis_pitch_failure = variant_ & 2;
+        d.opp_axis_pitch_failure = (variant_ & 2) != 0;
         b.elac_opp_bus.elevator_double_pressurization_command_deg = {(variant_ & 4) ? kNo : kNcd,
                                                                     static_cast<float>(-12 * jitter_)};
         setBit(b.elac_opp_bus.discrete_status_word_1, 17, variant_ & 1);
@@ -228,10 +229,10 @@ class ScriptScenario {
         b.sec_1_bus.discrete_status_word_1.SSM = (k & 8) ? kNo : kFw;
         b.sec_2_bus.discrete_status_word_1.SSM = (k & 8) ? kNo : kNcd;
         setBit(b.fcdc_1_bus.efcs_status_word_1, 29, k & 16);
-        setBit(b.fcdc_2_bus.efcs_status_word_1, 29, k & 16);
+        setBit(b.fcdc_2_bus.efcs_status_word_1, 29, (k & 16) && !(variant_ & 1));
         setBit(b.fcdc_1_bus.efcs_status_word_3, 23, k == 3);
         setBit(b.fcdc_2_bus.efcs_status_word_3, 24, k == 5);
-        d.fac_1_yaw_control_lost = d.fac_2_yaw_control_lost = k == 7;
+        d.fac_1_yaw_control_lost = d.fac_2_yaw_control_lost = k == 12;
         setBit(b.sec_1_bus.discrete_status_word_2, 17, k & 1);
         setBit(b.sec_2_bus.discrete_status_word_2, 17, k & 2);
         setBit(b.sec_1_bus.discrete_status_word_2, 18, k & 4);
@@ -252,7 +253,7 @@ class ScriptScenario {
       default:  // aileron droop / anti-droop: flaps extended, ground spoilers, pitch below 2.5 deg, AP
         hydraulics(i);
         sfccWord(i, 19, variant_ & 1);
-        d.ground_spoilers_active_1 = d.ground_spoilers_active_2 = variant_ & 2;
+        d.ground_spoilers_active_1 = d.ground_spoilers_active_2 = (variant_ & 2) != 0;
         allIr(i, (variant_ & 4) ? 1.0 : 5.0, 0);
         d.ap_1_disengaged = d.ap_2_disengaged = jitter_ > -0.5;
         d.opp_left_aileron_lost = jitter_ > 0.6;

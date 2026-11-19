@@ -12,8 +12,8 @@
 //  --discretes SEED  episodes: discrete inputs flipped (the unit discretes included), analog inputs replaced (NaN,
 //                    infinities, 0, +-full scale, scaled), bits of ARINC discrete words flipped
 //  --power SEED      computer_running false for 1 frame, 2-10 frames, 0.2-5 s or 5-60 s, flicker, one or all
-//  --sim SEED        dt 0, tiny, 0.2-2 s, NaN; simulation / monotonic time jumps; slew / pause / tracking override /
-//                    tailstrike protection flags
+//  --sim SEED        dt 0, tiny, 0.2-2 s, NaN; simulation / monotonic time jumps and 0; slew / pause / tracking
+//                    override / tailstrike protection flags
 
 #pragma once
 
@@ -261,7 +261,11 @@ class SimScenario {
         case 3: in[c].time.dt = kNaN; break;
         case 4: in[c].sim_data.slew_on = true; break;
         case 5: in[c].sim_data.pause_on = true; break;
-        default: in[c].sim_data.tracking_mode_on_override = true; break;
+        case 6: in[c].sim_data.tracking_mode_on_override = true; break;
+        default:  // a frame at simulation time 0 (the event times' "unset" value)
+          in[c].time.simulation_time = 0.0;
+          in[c].time.monotonic_time = 0.0;
+          break;
       }
     }
   }
@@ -269,8 +273,8 @@ class SimScenario {
  private:
   void start() {
     episodes_++;
-    kind_ = rng_.irand(8);
-    remaining_ = kind_ <= 3 ? rng_.u(0.02, 0.3) : rng_.u(0.05, 5.0);
+    kind_ = rng_.irand(9);
+    remaining_ = kind_ <= 3 || kind_ == 8 ? rng_.u(0.02, 0.3) : rng_.u(0.05, 5.0);
     dtValue_ = rng_.u(0.2, 2.0);
     if (rng_.chance(0.15)) timeOffset_ += rng_.chance(0.5) ? rng_.u(0.0, 30.0) : -rng_.u(0.0, 5.0);
     if (rng_.chance(0.1)) tailstrike_ = !tailstrike_;
