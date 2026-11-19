@@ -107,7 +107,12 @@ FACs: LGCIU main gears and "gear not uplocked" (FAC word 5 bits 18-20; the handl
 Estimated: wheel speeds (not recorded: the ground speed, and FMGC 1's wheel speed above 70 kt discretes), spoiler /
 elevator positions (bus float copies).
 
-Result: RESULTS_SEC_REPLAY
+Result (30 recordings, 4.34 M frames): SEC frames with known inputs 10,622,247, of which 10,620,525 (99.98 %)
+bit-exact on every bus word, discrete and analog order. The rest: discrete word 2 bit 18 (gear not uplocked) on 573
+frames at gear transitions (the LGCIU word 3 bits are rebuilt from the FAC's single "gear down" bit), the ground
+spoiler out discrete on 12 frames and the spoiler orders on 766 (pair 2) and 1,149 (pair 1) frames around touchdown (wheel speeds estimated).
+The speed brake lever is read from the next frame's record (the recorded handle position is the L:var written at the
+end of the previous frame). Approximate frames (2,044,727): 2,041,185 bit-exact.
 
 ## Verification (readable vs generated)
 
@@ -116,9 +121,24 @@ Result: RESULTS_SEC_REPLAY
 take-off, partial lift dumping, speed brakes and inhibition, roll spoilers, LGCIU words, SEC pitch and THS, ADR / IR
 patterns and abnormal attitude), `--failures`, `--discretes`, `--power`, `--sim`.
 
-- `UNIT=sec scripts/check-efcs-corpus.sh`: RESULTS_SEC
-- Coverage: COVERAGE_SEC
-- Mutation test: MUTATION_SEC
+- `UNIT=sec SEEDS=1 scripts/check-efcs-corpus.sh`: 271 runs, 39.2 M steps x 3 SECs, 610,938 SEC restarts, **0
+  mismatches** (gcc and the clang coverage build). Mean step time: generated 0.34 us, readable 0.23 us.
+- Coverage: `SecComputer.cpp` 95.8 % of branches (799/834), 98.5 % of lines. Of the 35 sides not taken, 33 are
+  unreachable: library blocks (39, 40, 45), constant inputs (287, 293, 306, 317, 537, 667, 674, the constant
+  FailureWarning word 1119), implied conditions (the ADR / IR chains 331-382, the sidestick memories 581 / 585, the
+  duplicated gear terms 782 / 809, the flap index 1004, the THS reload at a restart 1084) and the spoiler order
+  saturations to -50..0 that the computation cannot leave (927-975); 2 are reachable but not reached (671: SFCC 2 bit
+  20 on a failed word in flight with the LGCIUs in fault; 1249: SEC 1 commanding the THS with green and yellow lost).
+  Readable `sec/` 98.9 % of branches.
+- Mutation test (`UNIT=sec scripts/mutate-efcs.sh`): **533 of 582 mutants caught** of `readable/sec/` (two rounds;
+  the threshold phase killed 19 of the first 68 survivors). The 49 survivors: 26 equivalent (the alternate law's dead
+  spoiler inputs (2), THS limit and spoiler order saturations that return or cannot reach the limit (11), SEC 3's
+  constant FailureWarning word (1), initial values (2), the on-ground chart's `> 0.1` on booleans (4), the duplicated
+  gear terms (4), SEC 3's pair 1 speed brake (limited to 0) and a zero roll order taking either branch (2)), 11
+  comparisons at a threshold never met exactly, and 12 reachable but not killed (flap index 1 / 2 and 4 / 6 in the
+  alternate law, the LGCIU bit-14 fault patterns (5), a simultaneous takeover press, SFCC 1 bit 21 in the direct law
+  condition, the abnormal bank / pitch thresholds 125 / 50 moved to 187.5 / 75 on the SEC, the speed brake lever clamp
+  below -0.5).
 
 ## FCOM checks (DSC-27-10-20 spoilers, DSC-27-20-20)
 

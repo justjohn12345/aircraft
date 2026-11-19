@@ -15,6 +15,7 @@
 //   5 LGCIU words: gears not uplocked, handle bits, one / both LGCIUs failed, disagreement beyond 10 s
 //   6 SEC pitch: both ELACs' pitch lost, the other SEC's elevators lost, THS ground setting after touchdown
 //   7 ADR / IR selection: every failure pattern; abnormal attitude values
+//   8 inputs held at and beyond the thresholds (thrust levers, lever, wheel speed, attitude, speed, alpha)
 
 #pragma once
 
@@ -59,7 +60,7 @@ class ScriptScenario {
   }
 
  private:
-  static constexpr int kPhases = 8;
+  static constexpr int kPhases = 9;
 
   static void hydraulics(sec_inputs& i) {
     auto& d = i.discrete_inputs;
@@ -198,6 +199,25 @@ class ScriptScenario {
         b.elac_2_bus.discrete_status_word_1.SSM = variant_ == 4 ? kFw : kNo;
         if (variant_ == 3) d.green_low_pressure = d.yellow_low_pressure = true;  // SEC 1 in pitch without the THS
         break;
+      case 8: {  // thresholds: thrust levers 20 / 25 / 35 / 0, lever 0.05 / -0.02, wheels 23, abnormal attitude values
+        hydraulics(i);
+        const int k = (variant_ * 5 + static_cast<int>(t_ / 1.5)) % 12;
+        static const double kTla[12] = {20, 25, 30, 35, 0, -5, 20, 25, 30, 0, 37, 10};
+        gear(i, (k & 1) || t_ > 6, t_ > 6, true);
+        levers(i, (variant_ & 1) ? kTla[k] : 0.0, (variant_ & 1) ? 0.0 : kTla[k],
+               (variant_ & 2) ? -0.02 : ((variant_ & 4) ? 0.05 : -0.6));
+        a.wheel_speed_left = a.wheel_speed_right = (variant_ & 4) ? 23.0 : 80.0;
+        a.ths_pos_deg = 0.02;
+        for (base_ir_bus* r : {&b.ir_1_bus, &b.ir_2_bus}) {
+          r->pitch_angle_deg = no(k == 2 ? 50.0 : (k == 3 ? 60.0 : (k == 4 ? -30.0 : (k == 5 ? 9.0 : 3.0))));
+          r->roll_angle_deg = no(k == 6 ? 125.0 : (k == 7 ? 150.0 : 0.0));
+        }
+        for (base_adr_bus* r : {&b.adr_1_bus, &b.adr_2_bus}) {
+          r->airspeed_computed_kn = no(k == 8 ? 440.0 : (k == 9 ? 60.0 : 200.0));
+          r->aoa_corrected_deg = no(k == 10 ? 40.0 : (k == 11 ? -10.0 : 3.0));
+        }
+        break;
+      }
       default: {  // ADR / IR selection, abnormal attitude values
         const int k = (variant_ + static_cast<int>(t_ / 3)) & 15;
         if (k & 1) b.adr_1_bus.mach.SSM = kFw;

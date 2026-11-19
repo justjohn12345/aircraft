@@ -200,9 +200,46 @@ frames differ only in law-driven analog orders, from lift-off on: elevator order
   protections, abnormal attitudes, sidestick priority lock, THS ground setting, double pressurisation, ADR / IR
   voting patterns, law capability words, droop), and the generic `--failures`, `--discretes`, `--power`, `--sim`
   (src/efcs_scenarios.h).
-- `UNIT=elac scripts/check-efcs-corpus.sh`: RESULTS_ELAC
-- Coverage: COVERAGE_ELAC
-- Mutation test: MUTATION_ELAC
+- `UNIT=elac SEEDS=1 scripts/check-efcs-corpus.sh`: 271 runs over the 30 recordings (plain, each injector alone, two
+  mixes, all at once, and a `--warm` run), 39.2 M steps x 2 ELACs, 677,388 ELAC restarts, **0 mismatches** in outputs
+  and hidden memories. Mean step time: generated 0.71 us, readable 0.56 us (gcc -O2, laws included). The clang
+  coverage build gave the same once a scripted phase stopped writing 2 and 4 into `boolean_T` inputs (the generated
+  bit packing shifts such a value into the next bit; the sim only ever passes 0 / 1).
+- Coverage (clang source-based; the corpus runs plus 12 extra scripted runs): `ElacComputer.cpp` 95.6 % of branches
+  (1216/1272), 99.0 % of lines. The 56 sides not taken: 53 unreachable, 3 reachable but not reached.
+  - library blocks with constant parameters (6): BitfromLabel's left shift / range tests (51, 52, 57), the lag
+    filter's second "not empty" flag (137), the alpha rate limiters' constant `reset` (206, 211);
+  - constant inputs (18): the "disagree" constants in the ADR / IR validity (433-481, `Constant1_Value_b`,
+    `Constant_Value_ad`), the double ADR term of the RA monitor and the pitch capability (676, 677, 968, 971-972),
+    `rtb_y_f` (962);
+  - the RA coherence monitor and the 250 ft default (L1: they need CAS > 200 / 180 kt with all ADRs failed) (9): 680,
+    685, 688-693, 718;
+  - implied by an earlier test (19): the voting else-chains (512-635), the RA selection (717), dual RA failure with
+    250 ft (730), the sidestick memories (823, 827), the flap index (113), the law selection chains (1004, 1009, 1023),
+    the THS reload at a restart (1548: not commanded on the first frame), double pressurisation when not engaged
+    (1581);
+  - reachable, not reached (3): 1040 / 1045 (the L5 case: own lateral capability direct with the other ELAC's normal),
+    1162 (alpha above alpha prot in flight within 10 s of power-up).
+  Laws: `LateralNormalLaw.cpp` 103/110 (law check; the 7 missing: saturations of 0 / 1 values (248, 250, 306-312, 465)
+  and the bank integrator reload after a reset (390)), `LateralDirectLaw.cpp` 2/2, `PitchNormalLaw.cpp` 408/434,
+  `PitchAlternateLaw.cpp` 169/174, `PitchDirectLaw.cpp` 6/6 (`scripts/pitch-law-coverage.sh`, 8 seeds x 1 M steps).
+  The pitch laws' missing sides are all unreachable: the lag / washout filters' second "not empty" flag (normal 1021,
+  1079, 1104; alternate 354, 379), the constant debug and manual flare switches (1390, 1394, 1409, 1415, 1419, 1433,
+  1443, 1447, 1456, 1467), the ground state's flap test implied by the one before (1604; alternate 573), the 0 / 1
+  chart output's saturation (1650, 1652), blend rate limiters that cannot go below 0 (1848, 1904, 2042, 2120, 2318,
+  2391), the 0 / 1 limit tables x 20 (1927, 1929, 2022, 2024), and the alternate law's constant `Constant_Value_m`
+  (482, 489). Readable: `elac/` 98.9 %
+  of branches (the missing sides mirror generated implied conditions), `efcs/` laws 95-100 %.
+- Mutation test (`UNIT=elac scripts/mutate-efcs.sh`, the shared runner `scripts/mutate-fcu.py`; 7 configs on three
+  short recordings, then two flights for survivors): **694 of 765 mutants caught** of `readable/elac/` (two rounds: the
+  first left 93; a phase holding inputs at the thresholds killed 22). The 71 survivors: 37 equivalent (initial values
+  that the restart / first frame overwrites (5); the unreachable RA coherence monitor, L1 (15); the other ELAC's
+  capability decoded only against "normal" (5); the roll spoiler sign and dead band at |xi| <= 5 (2); saturations
+  returning the limit (2); the default / SEC 2 thrust lever angles, which only matter at 35 deg (3); the law inputs that
+  have no effect, L3 (5)), 24 comparisons at a threshold never met exactly (abnormal attitude, alpha protection, AP
+  disconnect, RA, flight / ground chart), and 10 reachable but not killed by the configs run (a restart during an
+  overspeed, the FCDC copies of the SEC 1 bits (6), roll priority without engagement, the alpha protection hold's
+  stick threshold, the 2.5 deg chart threshold moved to 3.75).
 
 ### Rerun
 

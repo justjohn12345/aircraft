@@ -449,4 +449,13 @@ UNIT=elac JOBS=2 scripts/mutate-efcs.sh                         # UNIT=sec for t
   Injectors: scripted tours (`src/elac_scenarios.h`, `src/sec_scenarios.h`) and the generic word failures, discrete /
   analog flips, power cuts and sim flags (`src/efcs_scenarios.h`).
 
-Results (2026-11-18, 30 recordings): RESULTS_EFCS_README
+Results (2026-11-18, 30 recordings): `check-efcs-corpus.sh` (SEEDS=1) ELAC 271 runs, 39.2 M steps x 2 ELACs, 677,388
+restarts, 0 mismatches (generated 0.71 us / readable 0.56 us per step); SEC 271 runs, 39.2 M steps x 3 SECs, 610,938
+restarts, 0 mismatches (0.34 / 0.23 us). Law-level checks: pitch laws 20 seeds x 1 M steps, lateral laws 3 x 2 M,
+0 mismatches. Replay against the recorded outputs: SEC 99.98 % of 10.6 M SEC frames with known inputs bit-exact (the
+rest: gear bits at transitions, estimated wheel speeds at touchdown); ELAC 62 % of 7.77 M ELAC frames, every bus word
+and discrete exact, the law-driven orders differing by a few ULP in flight (elevator <= 2.1e-7 deg; finding L2).
+Coverage: `ElacComputer.cpp` 95.6 % of branches (1216/1272), `SecComputer.cpp` 95.8 % (799/834), laws 93-100 %;
+every missing side is listed in `docs/elac.md` / `docs/sec.md` (unreachable but for 3 + 2 reachable sides not
+reached). Mutation test: ELAC 694 / 765 caught, SEC 533 / 582 (survivors classified in
+the docs: equivalent, exact-threshold comparisons, 10 + 12 reachable but not killed).

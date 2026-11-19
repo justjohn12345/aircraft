@@ -11,7 +11,7 @@
 //   2 high speed protection, diving, AP                             8 ADR / IR voting: every failure pattern
 //   3 high angle of attack protection, stick inputs                 9 law capabilities: SEC / FCDC / FAC / ELAC words
 //   4 abnormal attitude and envelope limits                         10 aileron droop / anti-droop
-//   5 sidestick priority, locked after 30 s
+//   5 sidestick priority, locked after 30 s                         11 inputs held at and just beyond the thresholds
 
 #pragma once
 
@@ -56,7 +56,7 @@ class ScriptScenario {
   }
 
  private:
-  static constexpr int kPhases = 11;
+  static constexpr int kPhases = 12;
 
   static void allAdr(elac_inputs& i, double cas, double mach, double alpha) {
     for (base_adr_bus* a : {&i.bus_inputs.adr_1_bus, &i.bus_inputs.adr_2_bus, &i.bus_inputs.adr_3_bus}) {
@@ -158,6 +158,8 @@ class ScriptScenario {
         allIr(i, 10, 0);
         d.ap_1_disengaged = d.ap_2_disengaged = true;
         if (variant_ == 5) i.time.monotonic_time = t_;  // within 10 s of power-up
+        if (variant_ == 4) ra(i, 250, 250);             // the hold condition between 200 and 300 ft
+        if (variant_ == 6) a.capt_pitch_stick_pos = 0.6;
         a.capt_pitch_stick_pos = (variant_ & 2) ? (ramp > 0.7 ? 0.8 : -0.2) : (ramp > 0.8 ? -0.7 : 0.0);
         break;
       case 4: {  // abnormal attitude and envelope limits, in flight, then on the ground
@@ -248,6 +250,38 @@ class ScriptScenario {
         hydraulics(i);
         inFlight(i);
         ra(i, 3000, 3000);
+        break;
+      }
+      case 11: {  // inputs held exactly at the thresholds, and between a threshold and 1.5 x it
+        hydraulics(i);
+        inFlight(i);
+        const int k = (variant_ * 7 + static_cast<int>(t_ / 1.5)) % 16;
+        static const double kTheta[16] = {25, 30, -13, -16, 50, -30, 3, 2.5, 8, 10, 0, 0, 0, 0, 0, 0};
+        static const double kPhi[16] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 45, 50, 125, 130, 0, 0};
+        allIr(i, kTheta[k], kPhi[k]);
+        allAdr(i, k == 14 ? 440 : (k == 15 ? 60 : 250), 0.5, 3);
+        a.capt_pitch_stick_pos = (variant_ & 1) ? 0.5 : 0.0;
+        a.capt_roll_stick_pos = (variant_ & 2) ? 0.5 : 0.0;
+        a.rudder_pedal_pos = (variant_ & 4) ? 0.4 : 0.0;
+        const double h = (variant_ & 4) ? 100.0 : ((variant_ & 2) ? 120.0 : 250.0);
+        ra(i, h, h);
+        a.ths_pos_deg = 0.02;
+        if (k >= 6 && k <= 9) {  // touchdown with one LGCIU between 50 and 75 ft, flight / ground chart thresholds
+          d.lgciu_1_left_main_gear_pressed = d.lgciu_1_right_main_gear_pressed = t_ > 2;
+          ra(i, 60, 60);
+        }
+        if (variant_ == 6) {  // SEC 1 thrust levers invalid, SEC 2 one valid; FCDC copies without the SEC bits
+          b.sec_1_bus.thrust_lever_angle_1_deg.SSM = kNcd;
+          b.sec_2_bus.thrust_lever_angle_2_deg.SSM = kNcd;
+          setBit(b.sec_1_bus.discrete_status_word_1, 15, false);
+          setBit(b.sec_1_bus.discrete_status_word_1, 16, false);
+          setBit(b.sec_2_bus.discrete_status_word_1, 15, false);
+          setBit(b.fcdc_2_bus.efcs_status_word_3, 23 + (k & 1), true);
+        }
+        if (variant_ == 7 && unit == 0) {  // ELAC 1 without ailerons (roll priority, not engaged)
+          d.l_ail_servo_failed = d.r_ail_servo_failed = true;
+          d.fac_1_yaw_control_lost = d.fac_2_yaw_control_lost = k & 1;
+        }
         break;
       }
       default:  // aileron droop / anti-droop: flaps extended, ground spoilers, pitch below 2.5 deg, AP
